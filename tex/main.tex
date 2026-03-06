@@ -1,0 +1,145 @@
+\documentclass{article}
+\input{template.tex}
+\input{notation.tex}
+
+
+\begin{document}
+
+\title{Space varying impulse response estimation for incoherent optical systems}
+\maketitle
+\tableofcontents
+
+\section{Introduction}
+Incoherent light microscopy is a widely used imaging technique in biological and material sciences. However, images obtained from such systems often suffer from blurring due to various factors, including optical aberrations and sample movement. This paper focuses on the development of advanced deblurring algorithms specifically designed for microscopic images captured under incoherent light conditions.
+
+\section{2D impulse response estimation}
+\subsection{Problem Formulation}
+Let $U_i$ and $U_o$ are the complex field of the image and sample respectively, their relation can be expressed via a integral operator $H$:
+\begin{equation}
+    U_i(x) = (HU_o)(x) = \int_{\mathbb{R}^2} G(x,x') U_o(x') dx'
+\end{equation}
+$G$ is called the integral kernel of $H$.
+
+In most optical systems, the measurement is the intensity of the image complex field:
+\begin{equation}
+    y(x) = |U_i(x)|^2 =  \left|\int_{\mathbb{R}^2} G(x,x') U_o(x') dx'\right|^2
+\end{equation}
+It is well-known that the case of incoherent light, the intensity of the sum of complex fields is equal to the sum of the intensity of the individual fields, 
+\begin{equation}
+    y(x) = \int_{\mathbb{R}^2} |G(x,x')|^2 \, |U_o(x')|^2 dx'
+\end{equation}
+The function $S(., x') = G(\cdot + x', x')$ is called the space varying impulse response (SVIR) of the integral operator $H$. The light intensity $y$ can then be written as:
+\begin{equation}
+    y(x) = \int_{\mathbb{R}^2} |S(x-x',x')|^2 |U_o(x')|^2 dx'
+\end{equation}
+We assume that the SVIR $S$ satisfies the smooth variation property, i.e $S$ is a smooth function with respect to the second variable.
+
+The objective of introducing the SVIR $S$ is to approximate the original integral operator by a convolution operator by taking into account the slow spatical variation of the impulse response.
+Throught experiments, one should find that the SVIR $S$ is a smooth function of the second variable and a compactly supported function of the first variable. Therefore, one can approximate the SVIR $S$ by a convolution operator with a compactly supported kernel,
+\begin{equation}
+    S(x-x',x') \approx h(x-x', x) \quad \mbox{ for } x' \mbox{ in neighborhood of } x
+\end{equation} 
+where $h:\mathbb{R}^2 \times \mathbb{R}^2 \to \mathbb{R}$ is suppported in ball of radius $f_c$ and center at origin with respect to the first variable, i.e a supp($h(\cdot, x)$) = $\mathcal{B}_{f_c},\, \forall x\in \mathbb{R}^2$. 
+This approximation yeilds:
+\begin{align}
+    y(x) &= \int_{\mathbb{R}^2} |h(x-x', x)|^2 |U_o(x')|^2 dx' \\
+    &= \left(|h(\cdot, x)|^2 \ast |U_o|^2\right)(x)
+\end{align}
+
+The kernel $h(\cdot, x)$ is called the point spread function (PSF), while its modulus square $|h(\cdot, x)|^2$ is called the amplitude spread function (ASF). In the context of microscopic imaging, the PSF is, up to a constant factor, to fourier transform of the pupil function of the optical system, which is modeled as:
+\begin{equation}
+    P(\xi, x) = \rho(\xi, x) e^{-i 2\pi \phi(\xi, x)} \quad \mbox{ for } \xi \in \mathbb{R}^2 \mbox{text{ and } } x \in \mathbb{R}^2
+\end{equation} 
+where $\rho(\cdot, x)$ is the aperture function of the optical system, and $\phi(\cdot, x)$ is the phase aberration of the optical system. Intuitively, $\rho(\cdot, x)$ can be seen as an amplitude mask, i,e $\rho(\xi, x) \leq 1$ for $\xi$ inside the aperture and $\rho(\xi, x) = 0$ for $\xi$ outside the aperture, while $\phi(\cdot, x)$ can be seen as a phase modification of the light wavefront caused by the optical system, including the lens, mirrors, etc,... 
+
+The phase aberration $\phi(\cdot, x)$ can be approximated by a linear combination of Zernike polynomials, which are a complete orthogonal basis for the unit disk:
+\begin{equation}
+    \phi(\xi, x)  \approx \phi^{K, \boldsymbol{\alpha}}(\xi, x) = \sum_{k=1}^{K} \alpha_k(x) Z_k^{f_D}(\xi) 
+\end{equation}
+where $Z_k^{f_D}$ is the $k$-th Zernike polynomial defined on the disk of radius $f_D$, and $\alpha_k$ is the coefficient of the linear combination.
+
+For the sake of simplicity, we assume that the aperture function $\rho(\cdot, x)$ is an indicator function of a disk with radius $f_D$, i.e 
+\begin{equation}
+    \rho(\xi, .) = \begin{cases}
+        1 & \mbox{ if } \xi \in \mathcal{B}_{f_D} \\
+        0 & \mbox{ otherwise }
+    \end{cases} 
+\end{equation}
+
+The PSF $h(\cdot, x)$ can be then approximated by taking the Fourier transform of the pupil function $P(\cdot, x)^{K, \boldsymbol{\alpha}}$:
+\begin{align}
+    h(z, x) \approx h^{K, \boldsymbol{\alpha}}(z, x) &= \int_{\mathbb{R}^2} P^{K, \boldsymbol{\alpha}}(\xi, x) \exp \left(i 2\pi \xi \cdot z\right) d\xi \\
+    & = \int_{\mathcal{B}_{f_D}} \exp (- i 2\pi \phi^{K, \boldsymbol{\alpha}}(\xi, x)) \, \exp \left(-i 2\pi \, \xi \cdot z\right) d\xi
+\end{align}
+Also, the conjugate of the PSF $h^{K, \boldsymbol{\alpha}}$ is given by:
+\begin{align}
+    \overline{h^{K, \boldsymbol{\alpha}}(z, x)} &= \int_{\mathbb{R}^2} \overline{P^{K, \boldsymbol{\alpha}}(\xi, x) \exp \left(-i 2\pi \xi \cdot z\right)} d\xi \\
+    &= \int_{\mathcal{B}_{f_D}} \exp (i 2 \pi \phi^{K, \boldsymbol{\alpha}}(\xi, x)) \, \exp \left(i 2\pi \, \xi \cdot z\right) d\xi \\
+    &= \int_{\mathcal{B}_{f_D}} \exp (i 2 \pi \phi^{K, \boldsymbol{\alpha}}(- \xi, x)) \, \exp \left(-i 2\pi \, (\xi) \cdot z\right) d\xi \\
+    &=: \hat{Q}^{K, \boldsymbol{\alpha}}(z, x)
+\end{align}
+where $Q^{K, \boldsymbol{\alpha}}$ is defined as:
+\begin{equation}
+    Q^{K, \boldsymbol{\alpha}}(\xi,x) = \begin{cases}
+        \exp (i 2 \pi \phi^{K, \boldsymbol{\alpha}}(-\xi, x)) & \mbox{ if } \xi \in \mathcal{B}_{f_D} \\
+        0 & \mbox{ otherwise }
+    \end{cases}
+\end{equation}
+The ASF $|h^{K, \boldsymbol{\alpha}}(z, x)|^2$ is approximated by:
+\begin{align}
+    |h^{K, \boldsymbol{\alpha}}(z, x)|^2 &= h^{K, \boldsymbol{\alpha}}(z, x) \overline{h^{K, \boldsymbol{\alpha}}(z, x)} \\
+    &= \hat{P}^{K, \boldsymbol{\alpha}}(z, x) \hat{Q}^{K, \boldsymbol{\alpha}}(z, x) \\
+\end{align}
+
+
+
+
+To simplify the notation, we denote $\omega^{K, \boldsymbol{\alpha}} = |h^{K, \boldsymbol{\alpha}}|^2$ as the ASF at location $x$. The measurement $y$ can be then approximated by:
+\begin{equation}
+  y(x) \approx \left(\omega^{K, \boldsymbol{\alpha}}(\cdot, x) \ast |U_o|^2\right)(x)
+\end{equation}
+
+\textbf{Note}: In this report, when doing the fourier transform, we only do it with respect to the first variable.
+\subsection{Optimization problem}
+Our objective is to estimate the coefficients $\boldsymbol{\alpha}$ in order to recover the PSF $h^{K, \boldsymbol{\alpha}}$ and ASF $|h^{K, \boldsymbol{\alpha}}|^2$. To achieve this, we aim to minimize the following objective function:
+\begin{equation}
+    \mathcal{L}(\boldsymbol{\alpha}; \lambda) = F(\boldsymbol{\alpha}) + \lambda R(\boldsymbol{\alpha})
+\end{equation}
+where $F(\boldsymbol{\alpha})$ is the data fidelity term, $R(\boldsymbol{\alpha})$ is the regularization term, and $\lambda$ is a term that controls the trade-off between the data fidelity term and the regularization term.
+
+The data fidelity term $F(\boldsymbol{\alpha})$ can be expressed as:
+\begin{equation}
+    F(\boldsymbol{\alpha}) = \int_{\mathbb{R}^2} \left|y(x) - \left(\omega^{K, \boldsymbol{\alpha}}(\cdot, x) \ast |U_o|^2\right)(x)\right|^2 dx
+\end{equation}
+
+
+The regularization term $R(\boldsymbol{\alpha})$ is:
+\begin{align}
+    R(\boldsymbol{\alpha}) &=  \int_{\mathbb{R}^2} \int_{\mathbb{R}^2} \left\|\nabla_x \omega^{K, \boldsymbol{\alpha}}(z,x)\right\|^2 dx dz
+    + \int_{\mathbb{R}^2} \left(\int_{\mathbb{R}^2} \omega^{K, \boldsymbol{\alpha}}(z,x) dz - 1\right)^2 dx \\
+    % & =  \|\nabla_x \omega^{K, \boldsymbol{\alpha}}\|_{L^2(\mathbb{R}^2 \times \mathbb{R}^2)}^2  + \left\|\int_{\mathbb{R}^2} \omega^{K, \boldsymbol{\alpha}}(z, \cdot) dz - 1\right\|_{L^2(\mathbb{R}^2)}^2
+\end{align}
+The first term in the regularization term is a spatial smoothness term that encourages the ASF to vary smoothly across different spatial locations. The second term ensure that the ASF is normalized at each spatial location $x$.
+
+\todo{It is quite sure that the objective function $\mathcal{L}(\boldsymbol{\alpha}; \lambda)$ is non-convex, but I haven't found a counter example yet.}
+
+\subsection{Discretization}
+A function $u \in L^2(\mathbb{R}^2)$ is denoted in regular font whereas its discretized version is denoted in bold font $\boldsymbol{u} \in \mathbb{R}^N$. The value of function $u$ at $x \in \mathbb{R}^2$ is denoted by $u(x)$ while the $i$-th coefficient of the vector $u$ is denoted $\boldsymbol{u}[i]$.
+
+In practice, we do not have access to the continuous measurement $y$ and the continuous sample $I_o$. Instead, we have access to their discrete versions, which are obtained by sampling the continuous functions at a finite set of points inside $\Omega \subset \mathbb{R}^2$. Let $\{x_i\}_{i=1}^N$ be the set of sampling points, then we can define the discrete measurement $\boldsymbol{y}[i] = y(x_i)$ and the discrete sample $\boldsymbol{I}_{o}[i] = I_o(x_i)$.
+
+Under the assumption of smooth variation of the ASF, i.e $\omega^{K, \boldsymbol{\alpha}}$ is a smooth function with respect to the second variable, we can reduce the computational complexity by estimate the ASF at a finite set of spatial locations and then interpolate the ASF at other spatial locations $\{x_j\}_{j \in J \subset N}$, rather than estimating the ASF at all spatial locations $\{x_i\}_{i=1}^N$.
+
+It is common that the blurring image is divided into $J$ overlapping patches, the ASF is estimated at the center of each patch, and the ASF at other spatial locations is obtained by interpolating the ASF at the center of each patch. The computational cost is then reduced from $O(N^2)$ to $O(J N \log(N))$.
+
+Let the interpolation rule be denoted by $\mathcal{I}$, then the interpolated ASF at a spatial location $x_j$ can be expressed as:
+\begin{align}
+    \boldsymbol{\omega}^{K, \boldsymbol{\alpha}}[\cdot, j] &= \mathcal{I}\left(\{\boldsymbol{\omega}^{K, \boldsymbol{\alpha}}[\cdot, i]\}_{i=1}^J, j\right) \\
+    & = \sum_{i=1}^J w_{i,j} \boldsymbol{\omega}^{K, \boldsymbol{\alpha}}[\cdot, i]
+\end{align}
+where $\{w_{i,j}\}_{i=1,\dotsc,N; \, j=1,\dotsc,J}$ are the non-negative interpolation weights satisfying $\sum_{j=1}^J w_{i,j} = 1$ for all $i=1,\dotsc,N$.
+
+\subsection{Algorithms}
+I would begin with the gradient descent algorithm.
+
+\end{document}

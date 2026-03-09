@@ -15,6 +15,7 @@ from deepinv.physics import TiledSpaceVaryingBlur
 from deepinv.physics.generator import DiffractionBlurGenerator
 from torchmetrics.image import TotalVariation, PeakSignalNoiseRatio
 from torch.optim.lr_scheduler import CosineAnnealingLR
+import matplotlib.pyplot as plt
 
 # %% Load image
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -58,24 +59,7 @@ dinv.utils.plot([img_tensor, y], titles=["Original", "Blurred"])
 # %%
 coeffs_gt = blur_gt['coeff']
 print(coeffs_gt.shape)
-# %%
-# initialize coeffs with random values
-generator = DiffractionBlurGenerator(kernel_size,
-                                     channels,
-                                     pupil_size=pupil_size,
-                                     zernike_index=tuple(range(3,14)),
-                                     **kwargs)
-coeffs = generator.generate_coeff(batch_size=num_kernels).requires_grad_(True)
-# coeffs = torch.randn_like(coeffs_gt).requires_grad_(True)
-# compute the corresponding filters
-blur = generator.step(batch_size=num_kernels, coeff=coeffs)
-filters = blur['filter'].transpose(0, 1).unsqueeze(0)
 
-x = physics(img_tensor, filters=filters)
-dinv.utils.plot([img_tensor, x, y], titles=["Original", "Blurred_init", "Blurred_gt"])
-
-alpha = 0.5
-lamb = 0.1
 # %%
 
 
@@ -94,7 +78,18 @@ def grad(input, dim=3):
     return input[tuple(gindex)] - input[tuple(lindex)]
 
 # %%
-# update the coefficients using gradient descent
+# initialize coeffs with random values
+generator = DiffractionBlurGenerator(kernel_size,
+                                     channels,
+                                     pupil_size=pupil_size,
+                                     **kwargs)
+coeffs = generator.generate_coeff(batch_size=num_kernels).requires_grad_(True)
+# coeffs = torch.randn_like(coeffs_gt).requires_grad_(True)
+
+
+alpha = 0.5
+lamb = 0.1
+
 learning_rate = 0.01
 optimizer = torch.optim.AdamW([coeffs], lr=learning_rate)
 #%%
@@ -106,7 +101,7 @@ for i in range(n_iter):
     x = physics(img_tensor, filters=filters)
 
     # compute fidelity loss
-    loss_fidel = criterion(x, y)
+    loss_fidel = criterion(x, y)/(sigma**2)
 
     # compute regularization term 
     grad_h, grad_v = grad(filters.view(num_kernels_y, num_kernels_x, *filters.shape[-2:]), dim=(0,1))
@@ -122,10 +117,8 @@ for i in range(n_iter):
     L.backward()
     optimizer.step()
 
-    if i % 10 == 0 or i == n_iter - 1:
+    if i % 100 == 0 or i == n_iter - 1:
         print(f"iter {i:03d}: loss_fidel={loss_fidel.item():.6f}, loss_reg={loss_reg.item():.6f}, total={L.item():.6f}")
-        x_deconv = physics.A_adjoint(y, filters=filters)
-        show_images([img_tensor, x_deconv], title=["Original", "estimated"])
 #%%
 import matplotlib.pyplot as plt
 plt.plot(losses)
@@ -136,9 +129,6 @@ plt.show()
 estimated_blur = generator.step(batch_size=num_kernels, coeff=coeffs)
 estimated_filters = estimated_blur['filter'].transpose(0, 1).unsqueeze(0)
 show_images([physics(img_tensor, filters=estimated_filters), y], title=["Blurred with estimated filters", "Blurred with GT filters"])
-# %%
-img_res = physics.A_adjoint(y, filters=filters_gt)
-show_images([img_tensor, img_res], title=["Original", "Deconvolved with GT"])
 # %%
 # show the gt and estimated pupil functions
 pupil_gt = blur_gt['pupil'].unsqueeze(1)  
@@ -154,9 +144,8 @@ for i in range(10):
 initial_lr = 1e-2
 min_lr = 1e-4
 n_iter_u = 2000
-# u = physics.A_adjoint(y, estimated_filters).detach().requires_grad_(True)
-padding = (15,15,15,15)
-u = F.pad(y, padding).detach().requires_grad_(True)
+
+u = torch.clone(y.detach()).requires_grad_(True)
 optimizer_u = torch.optim.AdamW([u], lr=initial_lr)
 lr_scheduler = CosineAnnealingLR(optimizer_u, eta_min=min_lr, T_max=n_iter_u)
 
@@ -176,24 +165,6 @@ for i in range(n_iter_u):
         print(f"iter {i:03d}: loss_u={loss_u.item():.6f}")
         show_images([img_tensor, u], title=["Original", "Recovered with estimated filters"]) 
 
-# %%
-# crop the center of the estimated image and the original image for better visualization
-fig = plt.figure()
-plt.plot(losses_u)
-plt.xlabel("Iteration")
-plt.ylabel("Loss")
-plt.yscale("log")
-plt.title("Loss curve for image recovery with estimated filters")
-plt.show()
-
-psnr = PeakSignalNoiseRatio(data_range=1.0).to(**kwargs)
-
-crop_size = y.shape[-2:]
-crop_u = u[..., (u.shape[-2] - crop_size[0]) // 2 : (u.shape[-2] + crop_size[0]) // 2, (u.shape[-1] - crop_size[1]) // 2 : (u.shape[-1] + crop_size[1]) // 2]
-img_tensor_crop = img_tensor[..., (img_tensor.shape[-2] - crop_size[0]) // 2 : (img_tensor.shape[-2] + crop_size[0]) // 2, (img_tensor.shape[-1] - crop_size[1]) // 2 : (img_tensor.shape[-1] + crop_size[1]) // 2]
-show_images([img_tensor_crop, crop_u, y],
-            title=["Original", "Recovered", "Noisy"],
-            suptitle=f'psnr={psnr(crop_u, img_tensor_crop).item():.2f}dB')
 
 
 
@@ -201,35 +172,29 @@ show_images([img_tensor_crop, crop_u, y],
 # approximate the pupil function with fourier atoms
 
 # frequency grid for a ball of radius r in the Fourier domain
-n = 15
-
-freqs_x = torch.fft.fftfreq(img_tensor.shape[-2]).to(**kwargs)
-freq_x = torch.cat([freqs_x[0:n+1], freqs_x[-n:]])
-
-freq_y = torch.fft.fftfreq(img_tensor.shape[-1]).to(**kwargs)
-freq_y = torch.cat([freq_y[0:n+1], freq_y[-n:]])
-
-freq_grid = torch.meshgrid(freq_x, freq_y)
+n = 10
 
 coeffs_fourier = torch.randn((num_kernels, 2*n+1, 2*n+1),
                              dtype= torch.complex64,
-                             device=device).requires_grad_(True)
+                             device=device)*0.1
 
-# %%
-x = physics(img_tensor, filters=filters)
-dinv.utils.plot([img_tensor, x, y], titles=["Original", "Blurred_init", "Blurred_gt"])
+coeffs_fourier = coeffs_fourier.requires_grad_(True)
+
+hgrid, vgrid = torch.meshgrid(torch.arange(-n, n+1, device=device), torch.arange(-n, n+1, device=device), indexing='ij')
+mask = (1 + (hgrid/n)**2 + (vgrid/n)**2)**5
+
+mu = 2
 
 #%%
-n_iter = 10000
+n_iter = 4000
 losses = []
 
 learning_rate = 0.01
 optimizer = torch.optim.AdamW([coeffs_fourier], lr=learning_rate)
 
 for i in range(n_iter):
-    rooted_filters = torch.fft.ifft2(coeffs_fourier, dim=(-2, -1))
 
-    filters = torch.abs(rooted_filters)**2
+    filters = torch.abs(coeffs_fourier)**2
     filters = filters.unsqueeze(0).unsqueeze(0)
     x = physics(img_tensor, filters=filters)
 
@@ -240,7 +205,8 @@ for i in range(n_iter):
     grad_h, grad_v = grad(filters.view(num_kernels_y, num_kernels_x, *filters.shape[-2:]), dim=(0, 1))
     R1 = grad_h.pow(2).sum() + grad_v.pow(2).sum()
     R2 = torch.sum((torch.sum(filters, dim=(0,1,3,4)) - 1).pow(2))
-    loss_reg = alpha * R1 + (1 - alpha) * R2
+    R3 = torch.sum(mask[None,:,:]*(torch.abs(coeffs_fourier)**2))
+    loss_reg = R1 + R2 + R3
 
     # total loss
     L = loss_fidel + lamb * loss_reg
@@ -250,10 +216,8 @@ for i in range(n_iter):
     L.backward()
     optimizer.step()
 
-    if i % 500 == 0 or i == n_iter - 1:
+    if i % 200 == 0 or i == n_iter - 1:
         print(f"iter {i:03d}: loss_fidel={loss_fidel.item():.6f}, loss_reg={loss_reg.item():.6f}, total={L.item():.6f}")
-        x_deconv = physics.A_adjoint(y, filters=filters)
-        show_images([img_tensor, x_deconv], title=["Original", "estimated"])
 #%%
 import matplotlib.pyplot as plt
 plt.plot(losses)
@@ -261,53 +225,11 @@ plt.show()
 
 #%%
 # show the gt and estimated pupil functions
-for i in range(10):
-    show_images([filters_gt[0, 0, i:i+1].unsqueeze(0), 
+for i in range(20,30):
+    show_images([filters_gt[0, 0, i:i+1,5:-5,5:-5].unsqueeze(0), 
                  filters[0, 0, i:i+1].unsqueeze(0)],
                  title=[f"GT Filter {i}", f"Estimated Filter {i}"])
 
 
-# %%
-initial_lr = 1e-2
-min_lr = 1e-4
-n_iter_u = 2000
-# u = physics.A_adjoint(y, estimated_filters).detach().requires_grad_(True)
-padding = (15,15,15,15)
-u = F.pad(y, padding).detach().requires_grad_(True)
-optimizer_u = torch.optim.AdamW([u], lr=initial_lr)
-lr_scheduler = CosineAnnealingLR(optimizer_u, eta_min=min_lr, T_max=n_iter_u)
 
-estimated_filters = filters.detach()
-metric = TotalVariation().to(**kwargs)
-losses_u = []
-for i in range(n_iter_u):
-    u_blur = physics(u, filters=estimated_filters)
-    loss_u = criterion(u_blur, y) + 0.001 * metric(u)
-    # loss_u = criterion(u_blur, y)
-    optimizer_u.zero_grad()
-    loss_u.backward()
-    optimizer_u.step()
-    lr_scheduler.step()
-    losses_u.append(loss_u.item())
-    if i % 200 == 0 or i == n_iter_u - 1:
-        print(f"iter {i:03d}: loss_u={loss_u.item():.6f}")
-        show_images([img_tensor, u], title=["Original", "Recovered with estimated filters"]) 
-# %%
-# crop the center of the estimated image and the original image for better visualization
-fig = plt.figure()
-plt.plot(losses_u)
-plt.xlabel("Iteration")
-plt.ylabel("Loss")
-plt.yscale("log")
-plt.title("Loss curve for image recovery with estimated filters")
-plt.show()
-
-psnr = PeakSignalNoiseRatio(data_range=1.0).to(**kwargs)
-
-crop_size = y.shape[-2:]
-crop_u = u[..., (u.shape[-2] - crop_size[0]) // 2 : (u.shape[-2] + crop_size[0]) // 2, (u.shape[-1] - crop_size[1]) // 2 : (u.shape[-1] + crop_size[1]) // 2]
-img_tensor_crop = img_tensor[..., (img_tensor.shape[-2] - crop_size[0]) // 2 : (img_tensor.shape[-2] + crop_size[0]) // 2, (img_tensor.shape[-1] - crop_size[1]) // 2 : (img_tensor.shape[-1] + crop_size[1]) // 2]
-show_images([img_tensor_crop, crop_u, y],
-            title=["Original", "Recovered", "Noisy"],
-            suptitle=f'psnr={psnr(crop_u, img_tensor_crop).item():.2f}dB')
 # %%

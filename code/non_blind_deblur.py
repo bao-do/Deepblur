@@ -125,15 +125,15 @@ n = 10
 
 coeffs_fourier = torch.randn((num_kernels, 1, 2*n+1, 2*n+1),
                              dtype= torch.complex64,
-                             device=device)*0.1
+                             device=device)*0.01
 
 coeffs_fourier = coeffs_fourier.requires_grad_(True)
 
 #%%
 totalloss = TotalLoss(kernel_size=2*n+1,
                       num_kernels=(num_kernels_y, num_kernels_x),
-                      reg_coeffs=(0.5, 0.5, 1.0),
-                      r=3,
+                      filters_reg_coeffs=(0.5, 0.5, 0.002),
+                      r=2,
                       coeffs=(0.1, 0),
                       physics=physics,
                       basis="fourier",
@@ -146,6 +146,8 @@ losses = []
 
 learning_rate = 0.01
 optimizer = torch.optim.AdamW([coeffs_fourier], lr=learning_rate)
+scheduler = CosineAnnealingLR(optimizer, T_max=n_iter, eta_min=1e-3)
+
 
 for i in range(n_iter):
     Ls = totalloss.forward(img_tensor, y, projection_coeffs=coeffs_fourier)
@@ -156,21 +158,26 @@ for i in range(n_iter):
     optimizer.zero_grad()
     L.backward()
     optimizer.step()
+    scheduler.step()
 
-    if i % 100 == 0 or i == n_iter - 1:
+    if i % 500 == 0 or i == n_iter - 1:
         print(f"iter {i:03d}: loss_fidel={Ls[0].item():.6f}, loss_reg={Ls[1].item()+Ls[2].item():.6f}, total={L.item():.6f}")
 #%%
 import matplotlib.pyplot as plt
 plt.plot(losses)
+plt.yscale('log')
 plt.show()
 
 #%%
 # show the gt and estimated pupil functions
 filter = totalloss.filters_generator(coeffs_fourier)
-for i in range(20,30):
-    show_images([filters_gt[0, 0, i:i+1,5:-5,5:-5].unsqueeze(0), 
-                 filter[i].unsqueeze(0)],
-                 title=[f"GT Filter {i}", f"Estimated Filter {i}"])
+# random 10 indices
+indices = torch.randperm(num_kernels)[:10]
+show_images(filters_gt[0,0,indices,5:-5,5:-5].unsqueeze(1),
+            suptitle="GT Filters")
+show_images(filter[indices,...],
+            suptitle="Estimated Filters") 
+
 
 
 

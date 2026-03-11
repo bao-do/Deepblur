@@ -113,7 +113,7 @@ class TotalLoss(torch.nn.Module):
                  num_kernels: Union[Tuple[int, int], int],
                  basis: str = "zernike",
                  filters_generator= None,
-                 reg_coeffs: Tuple[float, float, float] = (1.0, 1.0, 1.0),
+                 filters_reg_coeffs: Tuple[float, float, float] = (1.0, 1.0, 1.0),
                  r: int = 3,
                  device='cpu',
                  dtype=torch.float32,
@@ -159,7 +159,7 @@ class TotalLoss(torch.nn.Module):
         if coeffs[0] > 0:
             self.criterion_reg_filter = RegFilter(kernel_size=kernel_size,
                                                 num_kernels=num_kernels,
-                                                reg_coeffs=reg_coeffs,
+                                                reg_coeffs=filters_reg_coeffs,
                                                 r=r,
                                                 **factory_kwargs)
         else:

@@ -75,6 +75,7 @@ class RegFilter(torch.nn.Module):
                                       indexing='ij')
         self.mask = (1 + (hgrid/h)**2 + (vgrid/w)**2)**r
 
+
         self.reg_coeffs = reg_coeffs
         self.dtype = dtype
         
@@ -93,15 +94,15 @@ class RegFilter(torch.nn.Module):
             raise ValueError("num_kernels must be set before calling forward")
         
         grad_h, grad_v = grad(h.view(*self.num_kernels, *h.shape[2:]), dim=(0,1))
-        fft_h = torch.fft.fft2(h, dim=(-2, -1))
+        fft_h = torch.fft.fftshift(torch.fft.fft2(h, dim=(-2, -1)))
 
         if self.reduction == 'sum':
             R1 = torch.sum((torch.sum(h, dim=(1,2,3)) - 1).pow(2))
-            R2 = grad_h.pow(2).sum() + grad_v.pow(2).sum()
+            R2 = grad_h.abs().sum() + grad_v.abs().sum()
             R3 = torch.sum(self.mask[None, None, :, :]*(torch.abs(fft_h)**2))
         else:
             R1 = torch.mean((torch.sum(h, dim=(1,2,3)) - 1).pow(2))
-            R2 = torch.mean(grad_h.pow(2)) + torch.mean(grad_v.pow(2))
+            R2 = torch.mean(grad_h.abs()) + torch.mean(grad_v.abs())
             R3 = torch.mean(self.mask[None, None, :, :]*(torch.abs(fft_h)**2))
         
         return self.reg_coeffs[0] * R1 + self.reg_coeffs[1] * R2 + self.reg_coeffs[2] * R3

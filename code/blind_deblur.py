@@ -55,7 +55,8 @@ generator = DiffractionBlurGenerator(kernel_size,
                                      channels,
                                      pupil_size=pupil_size,
                                      **kwargs)
-coeffs = generator.generate_coeff(batch_size=num_kernels).requires_grad_(True)
+coeffs = generator.generate_coeff(batch_size=num_kernels)*100
+coeffs = coeffs.requires_grad_(True)
 
 x = torch.clone(nonabbrev_image.detach()).requires_grad_(True)
 
@@ -71,9 +72,9 @@ filters_reg = RegFilter(kernel_size=kernel_size,
 
 img_reg = RegImage(**factorial_kwargs)
 
-lamb = 0.001
-lamb_min = 1e-4
-gamma = 1
+lamb = 1
+# lamb_min = 1
+gamma = 0.1
 
 K = 500
 K_x = 10
@@ -85,19 +86,17 @@ optimizer_kernel = torch.optim.AdamW([coeffs], lr=step_kernel)
 
 for k in range(K):
     if k % n_reset == 0:
-        print(f"Iteration {k}/{K}")
-        show_images([x, nonabbrev_image],
-            title=["Deblurred Image", "Non-abbreviated Image"])
-        est_filters = generator.step(batch_size=num_kernels, coeff=coeffs)['filter']
-        # random 10 indices
-        indices = torch.randperm(num_kernels)[:10]
-        show_images(est_filters[indices,...],
-                    suptitle="Estimated Filters")
+        # print(f"Iteration {k}/{K}")
+        # show_images([x, nonabbrev_image],
+        #     title=["Deblurred Image", "Non-abbreviated Image"])
+        # est_filters = generator.step(batch_size=num_kernels, coeff=coeffs)['filter']
+        # # random 10 indices
+        # indices = torch.randperm(num_kernels)[:10]
+        # show_images(est_filters[indices,...],
+        #             suptitle="Estimated Filters")
         
         x = torch.clone(abbrev_image.detach()).requires_grad_(True)
 
-    # Use a detached copy of the filters for the inner optimization of x
-    # This prevents backprop through the same generator graph multiple times
     filters_detached = generator.step(batch_size=num_kernels,
                                       coeff=coeffs.detach())['filter'].detach()
     optimizer_x = torch.optim.AdamW([x], lr=1e-2)
@@ -110,7 +109,7 @@ for k in range(K):
         loss_x.backward()
         optimizer_x.step()
     show_images([x, nonabbrev_image],
-        title=["Deblurred Image", "Non-abbreviated Image"])
+        title=["estimated image", "Non-abbreviated Image"])
     
     # Recompute fresh filters (attached to coeffs) for the kernel update step
     filters = generator.step(batch_size=num_kernels,
@@ -118,7 +117,8 @@ for k in range(K):
     loss_kernel_fidel = loss_fidel.forward(x, abbrev_image, filters=filters)
     loss_kernel_reg = filters_reg.forward(filters)
     loss_kernel = loss_kernel_fidel + gamma * loss_kernel_reg
-
+    # loss_kernel = gamma * loss_kernel_reg
+    
     optimizer_kernel.zero_grad()
     loss_kernel.backward()
     optimizer_kernel.step()
@@ -133,8 +133,8 @@ show_images([x, nonabbrev_image],
 # show the gt and estimated pupil functions
 est_filters = generator.step(batch_size=num_kernels, coeff=coeffs)['filter']
 # random 10 indices
-indices = torch.randperm(num_kernels)[:10]
-show_images(est_filters[indices,...],
+# indices = torch.randperm(num_kernels)[:10]
+show_images(est_filters, ncols=15,
             suptitle="Estimated Filters")
 
 # %%

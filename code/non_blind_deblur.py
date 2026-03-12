@@ -73,7 +73,7 @@ optimizer = torch.optim.AdamW([coeffs], lr=learning_rate)
 #%%
 totalloss = TotalLoss(kernel_size=kernel_size,
                       num_kernels=(num_kernels_y, num_kernels_x),
-                      reg_coeffs=(0.5, 0.5, 0),
+                      filters_reg_coeffs=(0.5, 0.5, 0),
                       r=3,
                       coeffs=(0.1, 0),
                       physics=physics,

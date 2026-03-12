@@ -10,11 +10,17 @@
 \tableofcontents
 
 \section{Introduction}
-Incoherent light microscopy is a widely used imaging technique in biological and material sciences. However, images obtained from such systems often suffer from blurring due to various factors, including optical aberrations and sample movement. This paper focuses on the development of advanced deblurring algorithms specifically designed for microscopic images captured under incoherent light conditions.
+Image acquisition from optical systems are, in most cases, blurred due to the imperfection of the optical system.
+Estimating the blur is essential for manual or self calibration of optical systems, especially for microscopic and astronomical imaging.
+This blur have been theoretically and experimentally proven to be varying in space, due to several reasons, such as the design of the considered optical system, the movement of the sample and the refactive index variation of the sample.
+This blur is commonly called space varying impulse response (SVIR), some methods to estimate SVIRs are to the image into small patches and the blur is assumed to be invariant within each patch, a optimization method is then used to estimate the blur for each patch, often with the help of some regularization terms, such as the spatial smoothness of the blur across different patches. Other methods approximate the SVIR by its projection onto a low-dimensional subspace, which is spanned by a set of basis functions and then estimate the coefficients of the projection \cite{9311840}. 
 
-\section{2D impulse response estimation}
+To abord the problem with caution, we begin by introducing mathematical formulation in section 2. We present the invariant blur estimation, which is a simple case of SVIR estimation in section 3, and then we move to the SVIR estimation in section 4. 
+
+\section{Problem Formulation}
 \subsection{Problem Formulation}
-Let $U_i$ and $U_o$ are the complex field of the image and sample respectively, their relation can be expressed via a integral operator $H$:
+
+Let $U_i$ and $U_o$ are the complex field of the image and sample respectively, \cite{goodman1969introduction} states that their relation can be expressed via a integral operator $H$:
 \begin{equation}
     U_i(x) = (HU_o)(x) = \int_{\mathbb{R}^2} G(x,x') U_o(x') dx'
 \end{equation}
@@ -32,6 +38,21 @@ The function $S(., x') = G(\cdot + x', x')$ is called the space varying impulse 
 \begin{equation}
     y(x) = \int_{\mathbb{R}^2} |S(x-x',x')|^2 |U_o(x')|^2 dx'
 \end{equation}
+\section{Spatially invariant impulse response estimation}
+This section focuses on the estimation of the spatially invariant impulse response, i.e, the case where the SVIR $S$ can be then represented by a convolution kernel:
+\begin{equation}
+    S(x-x', x') = h(x-x') \quad \mbox{ for all } x, x' \in \mathbb{R}^2
+\end{equation}
+
+The image intensity $y$ can be then expressed as a convolution of the amplitude spread function (ASF) $|h|^2$ and the intensity of the sample $|U_o|^2$:
+\begin{equation}
+    y(x) = (|h|^2 \ast |U_o|^2)(x)
+\end{equation}
+
+ 
+
+
+\section{Spatially varying impulse response estimation}
 We assume that the SVIR $S$ satisfies the smooth variation property, i.e $S$ is a smooth function with respect to the second variable.
 
 The objective of introducing the SVIR $S$ is to approximate the original integral operator by a convolution operator by taking into account the slow spatical variation of the impulse response.
@@ -142,4 +163,5 @@ where $\{w_{i,j}\}_{i=1,\dotsc,N; \, j=1,\dotsc,J}$ are the non-negative interpo
 \subsection{Algorithms}
 I would begin with the gradient descent algorithm.
 
+\bibliography{biblio.bib}
 \end{document}

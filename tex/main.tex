@@ -136,7 +136,7 @@ In this approach, we directly model the ASF $\omega(.,x)$ at each spatial locati
 This approach ensure, by construction, the non-negativity and normalization of the ASF at each spatial location $x$. 
 
 
-\subsection{Optimization problem}
+\subsection{Optimization problem}\label{sec:optimization_problem}
 Our objective is to estimate the coefficients $\boldsymbol{\alpha}$ in order to recover the PSF $h^{K, \boldsymbol{\alpha}}$ and ASF $|h^{K, \boldsymbol{\alpha}}|^2$. To achieve this, we aim to minimize the following objective function:
 \begin{equation}
     \mathcal{L}(\boldsymbol{\alpha}; \lambda) = F(\boldsymbol{\alpha}) + \lambda R(\boldsymbol{\alpha})
@@ -152,8 +152,8 @@ The data fidelity term $F(\boldsymbol{\alpha})$ can be expressed as:
 The regularization term $R(\boldsymbol{\alpha})$ is:
 \begin{equation}
     R(\boldsymbol{\alpha}) = \begin{cases}
-        +\infty &\mbox{ if } \exists x \in \mathbb{R}^2 \mbox{s.t} \int_{\mathbb{R}^2} \omega(z,x) dz \neq 1 \mbox{, or } \exists (z,x) \in \mathbb{R}^2 \times \mathbb{R}^2 \mbox{s.t} \omega(z,x) < 0 \\
-        \int_{\mathbb{R}^2} \|\nabla_x \omega^{K, \boldsymbol{\alpha}}(\cdot, x)\|_2^2 dx & \mbox{ otherwise }
+        +\infty &\mbox{ if } \exists x \in \mathbb{R}^2 \mbox{ s.t } \int_{\mathbb{R}^2} \omega(z,x) dz \neq 1 \mbox{, or } \exists (z,x) \in \mathbb{R}^2 \times \mathbb{R}^2 \mbox{ s.t } \omega(z,x) < 0 \\
+        \int_{\mathbb{R}^2} \|\nabla_x \omega(\cdot, x)\|_2^2 dx & \mbox{ otherwise }
     \end{cases}
 \end{equation}
 This regularization term ensures the non-negativity and normalization of the ASF at each spatial location $x$, and also promotes the smooth variation of the ASF across different spatial locations.
@@ -227,6 +227,9 @@ As one can observe, the expected squared $l_2$ norm of the error $\delta \omega$
     \label{fig:baseline_estimator}
     
 \end{figure}
+
+\subsection{PSF as the fourier transform of pupil function}
+As disscussed in~\cref{sec:optimization_problem}, the loss function is not convex with respect to the Zernike coefficients $\boldsymbol{\alpha}$, therefore, we can not guarantee the convergence of the optimization algorithm to the global minimum with carefully choosing initialization. A relevant technique to use in this case is the multi-start optimization, which consists of running the optimization algorithm multiple times with different random initializations and then selecting the solution with the lowest loss value. Through experience, we remarke that the LBFGS algorithm is suitable for this problem as it ensure a fast convergence.   
 
 
 % \subsection{Discretization}

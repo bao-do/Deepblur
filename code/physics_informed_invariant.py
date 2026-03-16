@@ -8,6 +8,8 @@ import deepinv as dinv
 from torchvision.utils import save_image
 from deepinv.physics.generator import DiffractionBlurGenerator
 from torch.optim import  LBFGS
+from objectives_function import LossFidelity, blur_fn_invariant
+
 absolute_path = os.path.abspath(os.path.dirname(__file__))
 figure_path = os.path.abspath(os.path.join(absolute_path, ".."))
 figure_path = os.path.join(figure_path, "tex/figures/physics_informed_invariant")
@@ -41,27 +43,10 @@ def random_seed():
 blur = kernel_generator.step(batch_size=1, seed=random_seed())
 kernel = blur['filter']
 pupil = blur['pupil']
+y = blur_fn_invariant(img, kernel)
+
 show_images([torch.real(pupil)], title=["Pupil Function"])
 show_images([kernel], title=["Original Kernel"])
-#%%
-def blur_fn(x, kernel):
-    kh, kw = kernel.shape[-2:]
-    kernel_padded = torch.zeros_like(x)
-    kernel_padded[:, :, :kh, :kw] = kernel
-    kernel_padded = torch.roll(kernel_padded, shifts=(-(kh//2), -(kw//2)), dims=(-2, -1))
-    x_fft = fft.fft2(x)
-    kernel_fft = fft.fft2(kernel_padded)
-    y_fft = x_fft * kernel_fft
-    y = torch.real(fft.ifft2(y_fft)[...,kh//2:-(kh//2), kw//2:-(kw//2)])
-    return y
-
-def closure():
-    optimizer.zero_grad()
-    loss = objective_fn(coeffs, blur_true.unsqueeze(0), norm="l2")  # L2 for sigma=0
-    loss.backward()
-    return loss
-
-y = blur_fn(img, kernel)
 show_images([y], title=["Blurred Image"])
 
 # %%
@@ -72,15 +57,13 @@ ys = y.expand(len(sigma_list), -1, -1, -1)
 ys = ys + sigma_list.view(-1, 1, 1, 1) * torch.randn_like(y)
 show_images(ys, title=[rf"$\sigma={sigma.item():.2f}$" for sigma in sigma_list])
 # %%
-def objective_fn(coeffs, blurr_true, norm="l2"):
-    kernel_est = kernel_generator.step(batch_size=1,
-                                       coeff=coeffs)['filter']
-    blur_x = blur_fn(img, kernel_est)
-    if norm == "l2":
-        return (blur_x - blurr_true).pow(2).sum()
-    elif norm == "l1":
-        return (blur_x - blurr_true).abs().sum()
-    
+
+objective_fn = LossFidelity(reduction="sum",
+                            norm="l2",
+                            physics=blur_fn_invariant,
+                            **kwargs)
+
+
 
 #%%
 niter = 10
@@ -108,9 +91,16 @@ for sigma, blur_true in zip(sigma_list, ys):
                         history_size=10,
                         max_iter=20,
                         line_search_fn="strong_wolfe")
-
         loss_iter = []
         for i in range(niter):
+            
+            def closure():
+                filters = kernel_generator.step(batch_size=1,
+                                                coeff=coeffs)['filter']
+                optimizer.zero_grad()
+                loss = objective_fn(img, blur_true.unsqueeze(0), filters=filters)
+                loss.backward()
+                return loss
             optimizer.step(closure)
             loss = closure()
             loss_iter.append(loss.item())

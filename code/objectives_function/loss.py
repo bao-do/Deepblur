@@ -5,7 +5,7 @@ from torchmetrics.image import TotalVariation
 from typing import Tuple, Union
 from functools import partial
 from warnings import warn
-from .utils import parameterize_kernel
+from .utils import psf_parameterization
 
 
 
@@ -32,7 +32,7 @@ class LossFidelity(torch.nn.Module):
     def forward(self,
                x: torch.Tensor,
                y: torch.Tensor, 
-               filters: torch.Tensor = None,):
+               filters: torch.Tensor = None):
         r'''
         Fidelity loss for blind deblurring
         Args:
@@ -154,7 +154,7 @@ class TotalLoss(torch.nn.Module):
         self.basis = basis
         
         if basis == "pixel":
-            self.filters_generator = partial(parameterize_kernel,
+            self.filters_generator = partial(psf_parameterization,
                                              parameterization=filters_generator)
         else:
             self.filters_generator = filters_generator

@@ -190,7 +190,7 @@ class TotalLoss(torch.nn.Module):
             filters = self.filters_generator.step(batch_size=self.num_kernels[0]*self.num_kernels[1],
                                                   coeff=projection_coeffs)['filter']
             
-
+        print(filters.requires_grad)
         loss_fidel = self.criterion_fidel(x, y, filters=filters)
         loss_reg_filter = self.criterion_reg_filter(filters) if filters is not None else 0
         loss_reg_img = self.criterion_reg_img(x)

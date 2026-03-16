@@ -137,4 +137,5 @@ est_filters = generator.step(batch_size=num_kernels, coeff=coeffs)['filter']
 show_images(est_filters, ncols=15,
             suptitle="Estimated Filters")
 
+
 # %%

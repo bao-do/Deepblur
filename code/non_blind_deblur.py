@@ -64,6 +64,9 @@ generator = DiffractionBlurGenerator(kernel_size,
                                      pupil_size=pupil_size,
                                      **kwargs)
 coeffs = generator.generate_coeff(batch_size=num_kernels).requires_grad_(True)
+print(coeffs.requires_grad)
+kernel = generator.step(batch_size=num_kernels, coeff=coeffs)['filter']
+print(kernel.requires_grad)
 
 
 

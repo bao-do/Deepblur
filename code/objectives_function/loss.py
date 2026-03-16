@@ -1,24 +1,33 @@
 import torch
-import numpy as np
 from deepinv.physics import TiledSpaceVaryingBlur
-from deepinv.physics.generator import DiffractionBlurGenerator
 from .utils import grad, as_pair
 from torchmetrics.image import TotalVariation
 from typing import Tuple, Union
-from torch.fft import fft2
 from functools import partial
+from warnings import warn
+from .utils import parameterize_kernel
+
+
+
 
 
 class LossFidelity(torch.nn.Module):
     def __init__(self,
-                 device='cpu',
-                 dtype=torch.float32,
-                 reduction='sum',
+                 reduction: str='sum',
+                 norm: str='l2',
                  physics: TiledSpaceVaryingBlur = None,
+                 dtype=torch.float32,
+                 device='cpu',
                  **kwargs):
         super().__init__(*kwargs)
         self.physics = physics
-        self.criterion = torch.nn.MSELoss(reduction=reduction).to(device=device, dtype=dtype)
+        if norm == 'l2':
+            self.criterion = torch.nn.MSELoss(reduction=reduction).to(device=device, dtype=dtype)
+        elif norm == 'l1':
+            self.criterion = torch.nn.L1Loss(reduction=reduction).to(device=device, dtype=dtype)
+        else:
+            warn(f"Unsupported norm: {norm}, using L2 by default.")
+            self.criterion = torch.nn.MSELoss(reduction=reduction).to(device=device, dtype=dtype)
 
     def forward(self,
                x: torch.Tensor,
@@ -33,7 +42,7 @@ class LossFidelity(torch.nn.Module):
             physics: physics model to apply the blur kernels to the estimated image
         '''
         if filters is not None:
-            x = self.physics(x, filters=filters.transpose(0, 1).unsqueeze(0))
+            x = self.physics(x, filters=filters)
         return self.criterion(x, y)
     
 class RegImage(torch.nn.Module):
@@ -74,8 +83,6 @@ class RegFilter(torch.nn.Module):
                                       torch.arange(-(w//2), (w//2) + 1, device=device),
                                       indexing='ij')
         self.mask = (1 + (hgrid/h)**2 + (vgrid/w)**2)**r
-
-
         self.reg_coeffs = reg_coeffs
         self.dtype = dtype
         
@@ -121,15 +128,14 @@ class TotalLoss(torch.nn.Module):
                  reduction='sum',
                  physics: TiledSpaceVaryingBlur = None,
                  coeffs: Tuple[float, float] = (1.0, 1.0),
-                 
                  **kwargs):
         r'''
         Total loss for blind deblurring, including fidelity and regularization terms
         Args:
             kernel_size: size of the blur kernels, either a tuple (h, w) or an integer (h = w)
             num_kernels: number of blur kernels, either a tuple (num_kernels_y, num_kernels_x) or an integer (num_kernels_y = num_kernels_x)
-            basis: type of basis used for the projection of the pupil function, either "zernike" or "fourier"
-            filters_generator: generator of the filters, used for the regularization term on the filters, if basis is "zernike"
+            basis: type of basis used for the projection of the pupil function, either "zernike" or "pixel"
+            filters_generator: generator of the filters if basis is "zernike", or a string in ["softmax", "relu", "silu"] for the parameterization of the filters if basis is "pixel"
             reg_coeffs: coefficients for the regularization terms on the filters, of the form (coeff_R1, coeff_R2, coeff_R3)
             r: exponent for the mask in the regularization term on the filters, must be greater than or equal to 2
             device: device to use for the computations
@@ -147,8 +153,9 @@ class TotalLoss(torch.nn.Module):
 
         self.basis = basis
         
-        if basis == "fourier":
-            self.filters_generator = lambda t : torch.abs(t)**2
+        if basis == "pixel":
+            self.filters_generator = partial(parameterize_kernel,
+                                             parameterization=filters_generator)
         else:
             self.filters_generator = filters_generator
 
@@ -184,14 +191,13 @@ class TotalLoss(torch.nn.Module):
             y: observed blurry image of shape (B, C, H, W)
             projection_coeffs: coefficients of the projection of the pupil function onto a basis, of shape (num_kernels, num_atoms)
         '''
-        if self.basis == "fourier":
+        if self.basis == "pixel":
             filters = torch.abs(projection_coeffs)**2
         elif self.basis == "zernike":
             filters = self.filters_generator.step(batch_size=self.num_kernels[0]*self.num_kernels[1],
                                                   coeff=projection_coeffs)['filter']
             
-        print(filters.requires_grad)
-        loss_fidel = self.criterion_fidel(x, y, filters=filters)
+        loss_fidel = self.criterion_fidel(x, y, filters=filters.transpose(0, 1).unsqueeze(0))
         loss_reg_filter = self.criterion_reg_filter(filters) if filters is not None else 0
         loss_reg_img = self.criterion_reg_img(x)
         return torch.stack([

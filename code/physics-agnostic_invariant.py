@@ -8,14 +8,20 @@ import deepinv as dinv
 from torchvision.utils import save_image
 from objectives_function import LossFidelity
 from deepinv.physics.generator import DiffractionBlurGenerator
-from torch.optim import Adam
-from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR
+from torch.optim import Adam, LBFGS
 
+absolute_path = os.path.abspath(os.path.dirname(__file__))
+figure_path = os.path.abspath(os.path.join(absolute_path, ".."))
+figure_path = os.path.join(figure_path, "tex/figures/physics_agnostic_invariant")
+
+exp_type = 'simulation'
+figure_path = os.path.join(figure_path, exp_type)
+
+os.makedirs(figure_path, exist_ok=True)
 # %%
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 dtype = torch.float32
 kwargs = {'device': device, 'dtype': dtype}
-absolute_path = os.path.abspath(os.path.dirname(__file__))
 img_size = (256, 256)
 psf_size = (31, 31)
 
@@ -24,6 +30,7 @@ img = open_image(os.path.join(absolute_path, "data/first_img.JPEG"),
                  **kwargs)
 img_crop = img[..., psf_size[0]//2:-(psf_size[0]//2), psf_size[1]//2:-(psf_size[1]//2)]
 show_images([img], title=["Original Image"])
+save_image(img, os.path.join(figure_path, "original_image.png"))
 # %%
 
 kernel_generator = DiffractionBlurGenerator(psf_size=psf_size,
@@ -60,17 +67,34 @@ show_images(ys, title=[rf"$\sigma={sigma.item():.2f}$" for sigma in sigma_list])
 
 
 # %%
-# softmax = torch.nn.Softmax(dim=-1)
-relu = torch.nn.SiLU()
-def objective_fn(coeffs, blurr_true, norm="l2"):
-    # h,w = coeffs.shape[-2:]
-    kernel_est = relu(coeffs)
-    kernel_est = kernel_est / kernel_est.sum()
+from warnings import warn
+softmax = torch.nn.Softmax(dim=-1)
+silu = torch.nn.SiLU()
+relu = torch.nn.ReLU()
+
+def parameterize_kernel(coeffs, parameterization="softmax"):
+    if parameterization == "softmax":
+        kernel_est = softmax(coeffs.flatten()).view(*psf_size)
+    elif parameterization == "relu":
+        kernel_est = relu(coeffs)
+        kernel_est = kernel_est / kernel_est.sum()
+    elif parameterization == "silu":
+        kernel_est = silu(coeffs)
+        kernel_est = kernel_est / kernel_est.sum()
+    else:
+        warn(f"Unsupported parameterization: {parameterization}, using softmax by default.")
+        kernel_est = softmax(coeffs.flatten()).view(*psf_size)
+    return kernel_est
+
+def objective_fn(coeffs, blurr_true, norm="l2", parameterization="softmax"):
+    kernel_est = parameterize_kernel(coeffs, parameterization=parameterization)
     blur_x = blur_fn(img, kernel_est)
+    L = 0
     if norm == "l2":
-        return (blur_x - blurr_true).pow(2).sum()
+        L = (blur_x - blurr_true).pow(2).sum()
     elif norm == "l1":
-        return (blur_x - blurr_true).abs().sum()
+        L = (blur_x - blurr_true).abs().sum()
+    return L
     
 def initial_coeffs(psf_size, x, y):
     fft_x = fft.fft2(x)
@@ -80,52 +104,117 @@ def initial_coeffs(psf_size, x, y):
     h = torch.roll(h, shifts=(psf_size[0]//2, psf_size[1]//2), dims=(-2, -1))
     h_cropped = h[..., :psf_size[0], :psf_size[1]]
     return h_cropped
+
+def closure():
+    optimizer.zero_grad()
+    loss = objective_fn(coeffs,
+                        blur_true.unsqueeze(0),
+                        norm="l2",
+                        parameterization="softmax") 
+    loss.backward()
+    return loss
 #%%
-niter = 20000
+niter = 300
 learning_rate = 1e-2
-eta_min = 1e-6
+eta_min = 1e-4
+n_restarts = 5
 
 
 
-
-for i, blur_true in enumerate(ys):
+best_kernel_est_list = []
+for sigma, blur_true in zip(sigma_list,ys):
+    best_loss = float('inf')
+    best_loss_iter = None
+    best_kernel_est = None
     print("#######################################################################")
-    print(f"Starting optimization for sigma={sigma_list[i].item():.2f}")
+    print(f"Starting optimization for sigma={sigma.item():.2f}")
+    for restart in range(n_restarts):
+        print(f"Restart {restart+1}/{n_restarts}")
+        coeffs = torch.randn(1,1, *psf_size, **kwargs)
+        coeffs = coeffs.requires_grad_(True)
 
-    coeffs = initial_coeffs(psf_size, img_crop, blur_true)
-    # coeffs = torch.randn(1,1, *psf_size, **kwargs)
-    coeffs = coeffs.requires_grad_(True)
+        optimizer = LBFGS([coeffs],
+                          lr=learning_rate,
+                          max_iter=20,
+                          line_search_fn='strong_wolfe')
 
-    optimizer = Adam([coeffs], lr=learning_rate)
-    lr_scheduler = CosineAnnealingLR(optimizer, T_max=niter, eta_min=eta_min)
-    # lr_scheduler = ExponentialLR(optimizer, gamma=0.996)
-
-    kernel_iter = []
-    loss_iter = []
-    iter = []
-    for i in range(niter):
-        loss = objective_fn(coeffs, blur_true.unsqueeze(0), norm="l1")
-
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        lr_scheduler.step()
-        
-        if (i % 200 == 0) or (i+1 == niter):
-            print(f"Iteration {i+1}/{niter}, Loss: {loss.item()}")
-            # kernel_est = softmax(coeffs.flatten()).view(*psf_size).detach()
-            kernel_est = relu(coeffs)
-            kernel_est = kernel_est / kernel_est.sum()
-            kernel_iter.append(kernel_est.detach())
+        kernel_iter = []
+        loss_iter = []
+        iter = []
+        loss_iter = []
+        for i in range(niter):
+            optimizer.step(closure)
+            loss = closure()
             loss_iter.append(loss.item())
-            iter.append(i+1)
-    
-    kernel_iter = torch.cat(kernel_iter)
-    show_images([kernel, kernel_est],
+            
+            if (i % 10 == 0) or (i+1 == niter):
+                print(f"Iteration {i+1}/{niter}, Loss: {loss.item()}")
+
+
+        if loss_iter[-1] < best_loss:
+            best_loss = loss_iter[-1]
+            best_loss_iter = loss_iter
+            kernel_est = softmax(coeffs.flatten()).view(1,*psf_size).detach()
+            best_kernel_est = kernel_est
+        
+    fig = plt.figure(figsize=(10, 5))
+    plt.plot(loss_iter)
+    plt.xlabel("Iteration")
+    plt.ylabel("Loss")
+    plt.title(f"Loss Curve for sigma={sigma.item():.2f}")
+    plt.show()
+
+    show_images([kernel, best_kernel_est.unsqueeze(0)],
                 title=["Original Kernel", "Estimated Kernel"])
-    show_images(kernel_iter,
-                title=[rf"Iter {it}" for it in iter],
-                ncols=5)
+    show_images([torch.log(torch.abs(fft.fftshift(fft.fft2(kernel)))+1e-8),
+            torch.log(torch.abs(fft.fftshift(fft.fft2(best_kernel_est)))+1e-8)],
+            title=["Original Kernel Spectrum", "Estimated Kernel Spectrum"])
+
+    best_kernel_est_list.append(best_kernel_est)
     
+
+# %%
+# Calculate the hessian of the loss function at the estimated kernel
+# in 1D for simplicity
+from torch.autograd.functional import hessian
+from functools import partial
+
+def blur_fn_1d(x, kernel):
+    kh = kernel.shape[-1]
+    kernel_padded = torch.zeros_like(x)
+    kernel_padded[..., :kh] = kernel
+    kernel_padded = torch.roll(kernel_padded, shifts=-(kh//2), dims=-1)
+    x_fft = fft.fft(x)
+    kernel_fft = fft.fft(kernel_padded)
+    y_fft = x_fft * kernel_fft
+    y = torch.real(fft.ifft(y_fft)[..., kh//2:-(kh//2)])
+    return y
+
+def objective_fn_1d(coeffs, blurr_true, norm="l2"):
+    # kernel_est = softmax(coeffs.flatten())
+    # kernel_est = relu(coeffs)
+    # kernel_est = kernel_est / kernel_est.sum()
+    # blur_x = blur_fn_1d(img, kernel_est)
+    blur_x = blur_fn_1d(img, coeffs)
+    L = 0
+    if norm == "l2":
+        L = (blur_x - blurr_true).pow(2).sum()
+    elif norm == "l1":
+        L = (blur_x - blurr_true).abs().sum()
+    return L
+# %%
+blur_true = ys[0,0,0,:]
+coeffs_1d = torch.randn(psf_size[0], **kwargs)
+
+objective_fn_1d_partial = partial(objective_fn_1d, blurr_true=blur_true, norm="l2")
+hess = hessian(objective_fn_1d_partial, coeffs_1d)
+hess_eigvals = torch.linalg.eigvals(hess)
+plt.plot(hess_eigvals.real.cpu().numpy())
+plt.xlabel("Real Part of Eigenvalues")
+plt.ylabel("Imaginary Part of Eigenvalues")
+plt.title("Eigenvalues of the Hessian at the Estimated Kernel")
+plt.grid()
+plt.show()
+
 
 # %%

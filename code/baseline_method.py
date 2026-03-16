@@ -15,12 +15,15 @@ kwargs = {'device': device, 'dtype': dtype}
 absolute_path = os.path.abspath(os.path.dirname(__file__))
 img_size = (256, 256)
 
-# img = open_image(os.path.join(absolute_path, "data/first_img.JPEG"),
-#                  img_size=img_size,
-#                  **kwargs)
+figure_path = os.path.abspath(os.path.join(absolute_path, ".."))
+figure_path = os.path.join(figure_path, "tex/figures/baseline_method")
+os.makedirs(figure_path, exist_ok=True)
+img = open_image(os.path.join(absolute_path, "data/first_img.JPEG"),
+                 img_size=img_size,
+                 **kwargs)
 
-img = 10*torch.rand(1, 1, *img_size, **kwargs)
-save_image(img, os.path.join(figure_path, "white_noise.png"))
+# img = 10*torch.rand(1, 1, *img_size, **kwargs)
+save_image(img, os.path.join(figure_path, "original_image.png"))
 # %%
 
 psf_size = (31, 31)
@@ -49,21 +52,20 @@ kernel_est = kernel_est[:, :, :kernel.shape[-2], :kernel.shape[-1]]
 show_images([torch.cat([kernel, kernel_est], dim=0)],
             title=["Original Kernel"]+[rf"$\sigma={sigma.item():.2f}$" for sigma in sigma_list])
 
-# %%
-figure_path = os.path.abspath(os.path.join(absolute_path, ".."))
-figure_path = os.path.join(figure_path, "tex/figures/baseline_method")
-os.makedirs(figure_path, exist_ok=True)
+
 #%%
 for i, sigma in enumerate(sigma_list):
     fig = plt.figure()
     plt.imshow(kernel_est[i].permute(1, 2, 0).cpu().numpy())
     plt.axis('off')
-    plt.savefig(os.path.join(figure_path, f"estimated_kernel_sigma_noise{sigma.item():.2f}.png"))
+    plt.savefig(os.path.join(figure_path, f"estimated_kernel_sigma_{sigma.item():.2f}.png"))
     
 # %%
 kernel_np = kernel[0].permute(1, 2, 0).cpu().numpy()
 plt.imshow(kernel_np)
 plt.axis('off')
-plt.savefig(os.path.join(figure_path, "original_kernel_noise.png"))
+plt.savefig(os.path.join(figure_path, "original_kernel.png"))
 
 
+
+# %%

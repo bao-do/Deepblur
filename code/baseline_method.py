@@ -22,8 +22,8 @@ img = open_image(os.path.join(absolute_path, "data/first_img.JPEG"),
                  img_size=img_size,
                  **kwargs)
 
-# img = 10*torch.rand(1, 1, *img_size, **kwargs)
-save_image(img, os.path.join(figure_path, "original_image.png"))
+img = 10*torch.rand(1, 1, *img_size, **kwargs)
+# save_image(img, os.path.join(figure_path, "original_image.png"))
 # %%
 
 psf_size = (31, 31)
@@ -58,13 +58,20 @@ for i, sigma in enumerate(sigma_list):
     fig = plt.figure()
     plt.imshow(kernel_est[i].permute(1, 2, 0).cpu().numpy())
     plt.axis('off')
-    plt.savefig(os.path.join(figure_path, f"estimated_kernel_sigma_{sigma.item():.2f}.png"))
+    plt.tight_layout()
+    plt.savefig(os.path.join(figure_path,
+                             f"estimated_kernel_sigma_{sigma.item():.2f}_noise.png"),
+                bbox_inches="tight",
+                pad_inches=0)
     
 # %%
 kernel_np = kernel[0].permute(1, 2, 0).cpu().numpy()
 plt.imshow(kernel_np)
 plt.axis('off')
-plt.savefig(os.path.join(figure_path, "original_kernel.png"))
+plt.tight_layout()
+plt.savefig(os.path.join(figure_path, "original_kernel_noise.png"),
+            bbox_inches="tight",
+            pad_inches=0)
 
 
 

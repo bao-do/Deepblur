@@ -1,7 +1,21 @@
 \documentclass{article}
 \input{template.tex}
-\input{notation.tex}
+\input{math_commands.tex}
 
+\newcommand{\figwithlabel}[3]{%
+  \begin{minipage}{#2}
+    \centering
+    #1 \\ [0.5ex]
+    \includegraphics[width=\linewidth]{#3}
+  \end{minipage}%
+}
+
+\newcommand{\figwithsize}[2]{%
+  \begin{minipage}{#1}
+    \centering
+    \includegraphics[width=\linewidth]{#2}
+  \end{minipage}%
+}
 
 \begin{document}
 
@@ -192,10 +206,28 @@ The second equality is due to the Parseval's theorem, which states that the norm
     & = \sum_{f=1}^N \frac{1}{|\mathcal{F}(I_o^2)[f]|^2} \, \sum_{n=1}^{N} \sum_{m=1}^{N} \delta_{n,m} \exp(-2\pi j f (n-m) / N) \\
     & = N \sum_{f=1}^N \frac{\sigma^2}{|\mathcal{F}(I_o^2)[f]|^2} \\
 \end{align}
-As one can observe, the expected squared $l_2$ norm of the error $\delta \omega$ is proportional to the noise variance $\sigma^2$ and inversely proportional to the power of the fourier transform of the intensity of the sample $I_o^2$. This means that the error $\delta \omega$ is amplified at high frequencies where $\mathcal{F}(I_o^2)$ is close to zero. 
+As one can observe, the expected squared $l_2$ norm of the error $\delta \omega$ is proportional to the noise variance $\sigma^2$ and inversely proportional to the power of the fourier transform of the intensity of the sample $I_o^2$. This means that the error $\delta \omega$ is amplified at high frequencies where $\mathcal{F}(I_o^2)$ is close to zero, as illustrated in Figure \ref{fig:baseline_estimator}. This error would be even worse if the convolution is not circular, which is usually the case in practice. 
 
-This error would be even worse if the convolution is not circular, which is usually the case in practice. 
- 
+\begin{figure}[tb]
+    \centering
+    \def\sizeimg{0.25\textwidth}
+    \def\sizepsf{0.13\textwidth}
+    \def\imagepath{figures/baseline_method}
+    \figwithlabel{Original image}{\sizeimg}{\imagepath/original_image.png}
+    \figwithlabel{True psf}{\sizepsf}{\imagepath/original_kernel.png}
+    \foreach \label/\file in {0/0.00,0.01/0.01,0.05/0.05,0.10/0.10} {
+        \figwithlabel{$\sigma=\label$}{\sizepsf}{\imagepath/estimated_kernel_sigma_\file.png}
+    }
+    \\\figwithsize{\sizeimg}{\imagepath/white_noise.png}
+    \figwithsize{\sizepsf}{\imagepath/original_kernel_noise.png}
+    \foreach \label/\file in {0/0.00,0.01/0.01,0.05/0.05,0.10/0.10} {
+        \figwithsize{\sizepsf}{\imagepath/estimated_kernel_sigma_\file_noise.png}
+    }
+    \caption{Baseline estimation of the PSF with different noise levels. The first row shows the estimated PSF on natural image, usually have low frequency content, leading to huge errors between the estimated and true PSF, while the second row shows the estimated PSF on white noise, which have high frequency content, producing accurate psf estimation, even with high noise regime.}
+    \label{fig:baseline_estimator}
+    
+\end{figure}
+
 
 % \subsection{Discretization}
 % A function $u \in L^2(\mathbb{R}^2)$ is denoted in regular font whereas its discretized version is denoted in bold font $\boldsymbol{u} \in \mathbb{R}^N$. The value of function $u$ at $x \in \mathbb{R}^2$ is denoted by $u(x)$ while the $i$-th coefficient of the vector $u$ is denoted $\boldsymbol{u}[i]$.

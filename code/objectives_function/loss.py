@@ -67,7 +67,7 @@ class RegFilter(torch.nn.Module):
     def __init__(self,
                  kernel_size: Union[Tuple[int, int], int],
                  num_kernels: Union[Tuple[int, int], int] = None,
-                 reg_coeffs: Tuple[float, float, float] = (1.0, 1.0, 1.0),
+                 reg_coeffs: Tuple[float, float, float] = (1.0, 0.0, 0.0),
                  reduction='sum',
                  r: int=3,
                  device: str='cpu',
@@ -104,14 +104,14 @@ class RegFilter(torch.nn.Module):
         fft_h = torch.fft.fftshift(torch.fft.fft2(h, dim=(-2, -1)))
 
         if self.reduction == 'sum':
-            R1 = torch.sum((torch.sum(h, dim=(1,2,3)) - 1).pow(2))
-            R2 = grad_h.abs().sum() + grad_v.abs().sum()
-            R3 = torch.sum(self.mask[None, None, :, :]*(torch.abs(fft_h)**2))
+            R1 = 0 if self.reg_coeffs[0] == 0 else grad_h.abs().sum() + grad_v.abs().sum()
+            R2 = 0 if self.reg_coeffs[1] == 0 else torch.sum((torch.sum(h, dim=(1,2,3)) - 1).pow(2))
+            R3 = 0 if self.reg_coeffs[2] == 0 else torch.sum(self.mask[None, None, :, :]*(torch.abs(fft_h)**2))
         else:
-            R1 = torch.mean((torch.sum(h, dim=(1,2,3)) - 1).pow(2))
-            R2 = torch.mean(grad_h.abs()) + torch.mean(grad_v.abs())
-            R3 = torch.mean(self.mask[None, None, :, :]*(torch.abs(fft_h)**2))
-        
+            R1 = 0 if self.reg_coeffs[0] == 0 else torch.mean((torch.sum(h, dim=(1,2,3)) - 1).pow(2))
+            R2 = 0 if self.reg_coeffs[1] == 0 else torch.mean(grad_h.abs()) + torch.mean(grad_v.abs())
+            R3 = 0 if self.reg_coeffs[2] == 0 else torch.mean(self.mask[None, None, :, :]*(torch.abs(fft_h)**2))
+
         return self.reg_coeffs[0] * R1 + self.reg_coeffs[1] * R2 + self.reg_coeffs[2] * R3
 
 

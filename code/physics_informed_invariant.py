@@ -33,8 +33,10 @@ img_crop = img[..., psf_size[0]//2:-(psf_size[0]//2), psf_size[1]//2:-(psf_size[
 show_images([img], title=["Original Image"])
 save_image(img, os.path.join(figure_path, "original_image.png"))
 # %%
+max_zernike_amplitude = 0.2
 
 kernel_generator = DiffractionBlurGenerator(psf_size=psf_size,
+                                            max_zernike_amplitude=max_zernike_amplitude,
                                             num_channels=1,
                                             **kwargs)
 def random_seed():
@@ -84,6 +86,7 @@ for sigma, blur_true in zip(sigma_list, ys):
 
         coeffs = kernel_generator.step(batch_size=1,
                                         seed=random_seed())['coeff'].requires_grad_(True)
+        # coeffs = torch.zeros(1,8, **kwargs)
         coeffs = coeffs.requires_grad_(True)
 
         optimizer = LBFGS([coeffs],

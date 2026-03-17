@@ -18,7 +18,7 @@ absolute_path = os.path.abspath(os.path.dirname(__file__))
 figure_path = os.path.abspath(os.path.join(absolute_path, ".."))
 figure_path = os.path.join(figure_path, "tex/figures/physics_agnostic_invariant")
 
-exp_type = 'test'
+exp_type = 'simulation'
 figure_path = os.path.join(figure_path, exp_type)
 
 os.makedirs(figure_path, exist_ok=True)
@@ -51,8 +51,8 @@ show_images([kernel], title=["Original Kernel"])
 show_images([y], title=["Blurred Image"])
 
 # %%
-# sigma_list = torch.tensor([0, 0.01, 0.05, 0.1], **kwargs)
-sigma_list = torch.tensor([0], **kwargs)
+sigma_list = torch.tensor([0, 0.01, 0.05, 0.1], **kwargs)
+# sigma_list = torch.tensor([0], **kwargs)
 
 ys = y.expand(len(sigma_list), -1, -1, -1)
 ys = ys + sigma_list.view(-1, 1, 1, 1) * torch.randn_like(y)
@@ -125,15 +125,32 @@ for sigma, blur_true in zip(sigma_list,ys):
     plt.title(f"Loss Curve for sigma={sigma.item():.2f}")
     plt.show()
 
-    show_images([kernel, best_kernel_est.unsqueeze(0)],
+    show_images([kernel, best_kernel_est],
                 title=["Original Kernel", "Estimated Kernel"])
     show_images([torch.log(torch.abs(fft.fftshift(fft.fft2(kernel)))+1e-8),
             torch.log(torch.abs(fft.fftshift(fft.fft2(best_kernel_est)))+1e-8)],
             title=["Original Kernel Spectrum", "Estimated Kernel Spectrum"])
 
     best_kernel_est_list.append(best_kernel_est)
-    
 
+#%%
+# %%
+import matplotlib.pyplot as plt
+
+fig = plt.figure(figsize=(5, 5))
+plt.imshow(kernel[0,0].cpu().numpy(), cmap='viridis')
+plt.axis('off')
+plt.savefig(os.path.join(figure_path, f"original_kernel.png"),
+            bbox_inches="tight",
+            pad_inches=0)
+
+for sigma, kernel_est in zip(sigma_list, best_kernel_est_list):
+    fig = plt.figure(figsize=(5, 5))
+    plt.imshow(kernel_est[0,0].cpu().numpy(), cmap='viridis')
+    plt.axis('off')
+    plt.savefig(os.path.join(figure_path, f"estimated_kernel_sigma_{sigma.item():.2f}.png"),
+                bbox_inches="tight",
+                pad_inches=0)
 # %%
 # Calculate the hessian of the loss function at the estimated kernel
 # in 1D for simplicity

@@ -135,11 +135,15 @@ import matplotlib.pyplot as plt
 fig = plt.figure(figsize=(5, 5))
 plt.imshow(kernel[0,0].cpu().numpy(), cmap='viridis')
 plt.axis('off')
-plt.savefig(os.path.join(figure_path, f"original_kernel.png"))
+plt.savefig(os.path.join(figure_path, f"original_kernel.png"),
+            bbox_inches="tight",
+            pad_inches=0)
 
 for sigma, kernel_est in zip(sigma_list, best_kernel_est_list):
     fig = plt.figure(figsize=(5, 5))
     plt.imshow(kernel_est[0,0].cpu().numpy(), cmap='viridis')
     plt.axis('off')
-    plt.savefig(os.path.join(figure_path, f"estimated_kernel_sigma_{sigma.item():.2f}.png"))
+    plt.savefig(os.path.join(figure_path, f"estimated_kernel_sigma_{sigma.item():.2f}.png"),
+                bbox_inches="tight",
+                pad_inches=0)
 # %%

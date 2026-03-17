@@ -225,13 +225,40 @@ As one can observe, the expected squared $l_2$ norm of the error $\delta \omega$
     }
     \caption{Baseline estimation of the PSF with different noise levels. The first row shows the estimated PSF on natural image, usually have low frequency content, leading to huge errors between the estimated and true PSF, while the second row shows the estimated PSF on white noise, which have high frequency content, producing accurate psf estimation, even with high noise regime.}
     \label{fig:baseline_estimator}
-    
 \end{figure}
 
 \subsection{PSF as the fourier transform of pupil function}
-As disscussed in~\cref{sec:optimization_problem}, the loss function is not convex with respect to the Zernike coefficients $\boldsymbol{\alpha}$, therefore, we can not guarantee the convergence of the optimization algorithm to the global minimum with carefully choosing initialization. A relevant technique to use in this case is the multi-start optimization, which consists of running the optimization algorithm multiple times with different random initializations and then selecting the solution with the lowest loss value. Through experience, we remarke that the LBFGS algorithm is suitable for this problem as it ensure a fast convergence.   
+As disscussed in~\cref{sec:optimization_problem}, the loss function is not convex with respect to the Zernike coefficients $\boldsymbol{\alpha}$, therefore, we can not guarantee the convergence of the optimization algorithm to the global minimum with carefully choosing initialization. A relevant technique to use in this case is the multi-start optimization, which consists of running the optimization algorithm multiple times with different random initializations and then selecting the solution with the lowest loss value. Through experience, we remarke that the LBFGS algorithm is suitable for this problem as it ensures a fast convergence. The experimental results is shows in Figure \ref{fig:invariant_physic_inf_psf_est}.
 
 
+\begin{figure}[tb]
+    \centering
+    \def\sizeimg{0.25\textwidth}
+    \def\sizepsf{0.13\textwidth}
+    \def\imagepath{figures/physics_informed_invariant/simulation}
+    \figwithlabel{Original image}{\sizeimg}{\imagepath/original_image.png}
+    \figwithlabel{True psf}{\sizepsf}{\imagepath/original_kernel.png}
+    \foreach \label/\file in {0/0.00,0.01/0.01,0.05/0.05,0.10/0.10} {
+        \figwithlabel{$\sigma=\label$}{\sizepsf}{\imagepath/estimated_kernel_sigma_\file.png}
+    }
+    \caption{Physics-informed invariant PSF estimation experiment for synthetic data.}
+    \label{fig:invariant_physic_inf_psf_est}
+\end{figure}
+
+\subsection{Pixel-wise modelization of ASF}
+\begin{figure}[tb]
+    \centering
+    \def\sizeimg{0.25\textwidth}
+    \def\sizepsf{0.13\textwidth}
+    \def\imagepath{figures/physics_agnostic_invariant/simulation}
+    \figwithlabel{Original image}{\sizeimg}{\imagepath/original_image.png}
+    \figwithlabel{True psf}{\sizepsf}{\imagepath/original_kernel.png}
+    \foreach \label/\file in {0/0.00,0.01/0.01,0.05/0.05,0.10/0.10} {
+        \figwithlabel{$\sigma=\label$}{\sizepsf}{\imagepath/estimated_kernel_sigma_\file.png}
+    }
+    \caption{Physics-agnostic invariant PSF estimation experiment for synthetic data. }
+    \label{fig:invariant_physic_agn_psf_est}
+\end{figure}
 % \subsection{Discretization}
 % A function $u \in L^2(\mathbb{R}^2)$ is denoted in regular font whereas its discretized version is denoted in bold font $\boldsymbol{u} \in \mathbb{R}^N$. The value of function $u$ at $x \in \mathbb{R}^2$ is denoted by $u(x)$ while the $i$-th coefficient of the vector $u$ is denoted $\boldsymbol{u}[i]$.
 
@@ -251,5 +278,6 @@ As disscussed in~\cref{sec:optimization_problem}, the loss function is not conve
 % \subsection{Algorithms}
 % I would begin with the gradient descent algorithm.
 
+\newpage
 \bibliography{biblio.bib}
 \end{document}

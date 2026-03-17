@@ -123,3 +123,45 @@ for sigma, blur_true in zip(sigma_list, ys):
             
 
 # %%
+import torch.nn as nn
+from typing import Tuple
+class PsfCalibration(nn.Module):
+    learning_rate = 5e-3
+    eta_min = 1e-6
+    psf_size = (31, 31)
+    max_zernike_amplitude = 0.3
+    pupil_size: Tuple[int, int]=(256, 256)
+    input_dim = 256
+    niter = 150
+
+    def __init__(self, num_coeffs: int,
+                 device: str='cpu',
+                 model: nn.Module = None,
+                 **kwargs):
+        super().__init__()
+        self.num_coeffs = num_coeffs
+        if model is None:
+            self.model = MLP(input_dim=self.input_dim, output_dim=num_coeffs).to(device)
+        else:
+            self.model = model.to(device)
+        self.device = device
+
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+        self.optimizer = AdamW(self.model.parameters(),
+                               lr=self.learning_rate,
+                               weight_decay=1e-4)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer,
+                                                               T_max=self.niter,
+                                                               eta_min=self.eta_min)
+    
+    def update_parameters(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def _forward_one_image(x: torch.Tensor,
+                           y: torch.Tensor,
+                           kernel_generator: DiffractionBlurGenerator,
+                           objective_fn: LossFidelity):
+        

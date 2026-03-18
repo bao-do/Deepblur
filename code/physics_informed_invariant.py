@@ -33,7 +33,7 @@ img_crop = img[..., psf_size[0]//2:-(psf_size[0]//2), psf_size[1]//2:-(psf_size[
 show_images([img], title=["Original Image"])
 save_image(img, os.path.join(figure_path, "original_image.png"))
 # %%
-max_zernike_amplitude = 0.2
+max_zernike_amplitude = 0.3
 
 kernel_generator = DiffractionBlurGenerator(psf_size=psf_size,
                                             max_zernike_amplitude=max_zernike_amplitude,
@@ -53,7 +53,7 @@ show_images([y], title=["Blurred Image"])
 
 # %%
 sigma_list = torch.tensor([0, 0.01, 0.05, 0.1], **kwargs)
-# sigma_list = torch.tensor([0], **kwargs)
+# sigma_list = torch.tensor([0.05], **kwargs)
 
 ys = y.expand(len(sigma_list), -1, -1, -1)
 ys = ys + sigma_list.view(-1, 1, 1, 1) * torch.randn_like(y)
@@ -66,7 +66,11 @@ objective_fn = LossFidelity(reduction="sum",
                             **kwargs)
 
 
-
+kernel_est_generator = DiffractionBlurGenerator(psf_size=psf_size,
+                                            max_zernike_amplitude=0.3,
+                                            zernike_index=range(2,17 ),
+                                            num_channels=1,
+                                            **kwargs)
 #%%
 niter = 10
 learning_rate = 1e-3
@@ -84,7 +88,7 @@ for sigma, blur_true in zip(sigma_list, ys):
         print("#######################################################################")
         print(f"Restart {restart+1}/{n_restarts}: optimization for sigma={sigma.item():.2f}")
 
-        coeffs = kernel_generator.step(batch_size=1,
+        coeffs = kernel_est_generator.step(batch_size=1,
                                         seed=random_seed())['coeff'].requires_grad_(True)
         # coeffs = torch.zeros(1,8, **kwargs)
         coeffs = coeffs.requires_grad_(True)
@@ -98,10 +102,10 @@ for sigma, blur_true in zip(sigma_list, ys):
         for i in range(niter):
             
             def closure():
-                filters = kernel_generator.step(batch_size=1,
+                filters = kernel_est_generator.step(batch_size=1,
                                                 coeff=coeffs)['filter']
                 optimizer.zero_grad()
-                loss = objective_fn(img, blur_true.unsqueeze(0), filters=filters)
+                loss = objective_fn(img, blur_true.unsqueeze(0), filters=filters, crop=False)
                 loss.backward()
                 return loss
             optimizer.step(closure)
@@ -109,21 +113,30 @@ for sigma, blur_true in zip(sigma_list, ys):
             loss_iter.append(loss.item())
             if (i % 10 == 0) or (i == niter - 1):
                 print(f"Iteration {i+1}/{niter}, Loss: {loss.item():.10f}")
+        
+        kernel_est = kernel_est_generator.step(batch_size=1,
+                                            coeff=coeffs)['filter'].detach()
+        # show_images([kernel, kernel_est],
+        #             title=["Original Kernel", "Estimated Kernel"],
+        #             suptitle=f"relative error: {torch.norm(kernel-kernel_est)/torch.norm(kernel):.4f}")
+
 
         if loss_iter[-1] < best_loss:
             best_loss = loss_iter[-1]
             best_loss_iter = loss_iter
-            best_kernel_est = kernel_generator.step(batch_size=1,
+            best_kernel_est = kernel_est_generator.step(batch_size=1,
                                                     coeff=coeffs)['filter'].detach()
 
-    fig = plt.figure(figsize=(10, 5))
-    plt.plot(loss_iter)
-    plt.xlabel("Iteration")
-    plt.ylabel("Loss")
-    plt.title(f"Loss Curve for sigma={sigma.item():.2f}")
-    plt.show()
+    # fig = plt.figure(figsize=(10, 5))
+    # plt.plot(loss_iter)
+    # plt.xlabel("Iteration")
+    # plt.ylabel("Loss")
+    # plt.title(f"Loss Curve for sigma={sigma.item():.2f}")
+    # plt.show()
 
-    show_images([kernel, best_kernel_est], title=["Original Kernel", "Estimated Kernel"])
+    show_images([kernel, best_kernel_est],
+                title=["Original Kernel", "Estimated Kernel"],
+                suptitle=f"relative error: {torch.norm(kernel-best_kernel_est)/torch.norm(kernel):.4f}")
     show_images([torch.log(torch.abs(fft.fftshift(fft.fft2(kernel)))+1e-8),
             torch.log(torch.abs(fft.fftshift(fft.fft2(best_kernel_est)))+1e-8)],
             title=["Original Kernel Spectrum", "Estimated Kernel Spectrum"])

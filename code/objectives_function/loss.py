@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 from deepinv.physics import TiledSpaceVaryingBlur
 from .utils import grad, as_pair
 from torchmetrics.image import TotalVariation
@@ -6,6 +7,7 @@ from typing import Tuple, Union
 from functools import partial
 from warnings import warn
 from .utils import psf_parameterization
+
 
 
 
@@ -32,7 +34,8 @@ class LossFidelity(torch.nn.Module):
     def forward(self,
                x: torch.Tensor,
                y: torch.Tensor, 
-               filters: torch.Tensor = None):
+               filters: torch.Tensor = None,
+               crop: bool=True):
         r'''
         Fidelity loss for blind deblurring
         Args:
@@ -41,8 +44,12 @@ class LossFidelity(torch.nn.Module):
             filters: space-varying blur kernels of shape (num_kernels, 1, kernel_size[0], kernel_size[1])
             physics: physics model to apply the blur kernels to the estimated image
         '''
+        # assert x.shape == y.shape, "the original and blurred image must have the same shape"
         if filters is not None:
             x = self.physics(x, filters=filters)
+        if crop:
+            kh, kw = filters.shape[-2:]
+            y = y[..., kh//2:-(kh//2), kw//2:-(kw//2) ]
         return self.criterion(x, y)
     
 class RegImage(torch.nn.Module):

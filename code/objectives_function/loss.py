@@ -34,7 +34,7 @@ class LossFidelity(torch.nn.Module):
     def forward(self,
                x: torch.Tensor,
                y: torch.Tensor, 
-               filters: torch.Tensor = None,
+               filter: torch.Tensor = None,
                crop: bool=True):
         r'''
         Fidelity loss for blind deblurring
@@ -45,10 +45,10 @@ class LossFidelity(torch.nn.Module):
             physics: physics model to apply the blur kernels to the estimated image
         '''
         # assert x.shape == y.shape, "the original and blurred image must have the same shape"
-        if filters is not None:
-            x = self.physics(x, filters=filters)
+        if filter is not None:
+            x = self.physics(x, filter=filter)
         if crop:
-            kh, kw = filters.shape[-2:]
+            kh, kw = filter.shape[-2:]
             y = y[..., kh//2:-(kh//2), kw//2:-(kw//2) ]
         return self.criterion(x, y)
     
@@ -120,7 +120,6 @@ class RegFilter(torch.nn.Module):
             R3 = 0 if self.reg_coeffs[2] == 0 else torch.mean(self.mask[None, None, :, :]*(torch.abs(fft_h)**2))
 
         return self.reg_coeffs[0] * R1 + self.reg_coeffs[1] * R2 + self.reg_coeffs[2] * R3
-
 
 class TotalLoss(torch.nn.Module):
     def __init__(self,

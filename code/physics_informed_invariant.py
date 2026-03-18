@@ -9,6 +9,7 @@ from torchvision.utils import save_image
 from deepinv.physics.generator import DiffractionBlurGenerator
 from torch.optim import  LBFGS
 from objectives_function import LossFidelity, blur_fn_invariant
+from deepinv.physics.functional import conv2d_fft
 
 absolute_path = os.path.abspath(os.path.dirname(__file__))
 figure_path = os.path.abspath(os.path.join(absolute_path, ".."))
@@ -25,6 +26,7 @@ dtype = torch.float32
 kwargs = {'device': device, 'dtype': dtype}
 img_size = (256, 256)
 psf_size = (31, 31)
+num_coeffs = 15
 
 img = open_image(os.path.join(absolute_path, "data/first_img.JPEG"), 
                  img_size=img_size,
@@ -33,42 +35,44 @@ img_crop = img[..., psf_size[0]//2:-(psf_size[0]//2), psf_size[1]//2:-(psf_size[
 show_images([img], title=["Original Image"])
 save_image(img, os.path.join(figure_path, "original_image.png"))
 # %%
+sigma_list = torch.tensor([0, 0.01, 0.05, 0.1], **kwargs)
+sample_per_sigma = 1
+
 max_zernike_amplitude = 0.3
 
 kernel_generator = DiffractionBlurGenerator(psf_size=psf_size,
                                             max_zernike_amplitude=max_zernike_amplitude,
+                                            zernike_index=range(2, 12),
                                             num_channels=1,
                                             **kwargs)
 def random_seed():
     return torch.randint(0, 10000, (1,)).item()
 
-blur = kernel_generator.step(batch_size=1, seed=random_seed())
-kernel = blur['filter']
-pupil = blur['pupil']
-y = blur_fn_invariant(img, kernel)
+blurs = kernel_generator.step(batch_size=sample_per_sigma, seed=random_seed())
+kernels = blurs['filter']
+pupils = blurs['pupil']
 
-show_images([torch.real(pupil)], title=["Pupil Function"])
-show_images([kernel], title=["Original Kernel"])
-show_images([y], title=["Blurred Image"])
+y = conv2d_fft(img, kernels, padding="valid")
 
-# %%
-sigma_list = torch.tensor([0, 0.01, 0.05, 0.1], **kwargs)
-# sigma_list = torch.tensor([0.05], **kwargs)
+# y = blur_fn_invariant(img, kernels)
 
-ys = y.expand(len(sigma_list), -1, -1, -1)
-ys = ys + sigma_list.view(-1, 1, 1, 1) * torch.randn_like(y)
-show_images(ys, title=[rf"$\sigma={sigma.item():.2f}$" for sigma in sigma_list])
+# show_images([torch.real(pupils)], title=["Pupil Function"])
+# show_images([kernels], title=["Original Kernel"])
+# show_images([y], title=["Blurred Image"])
+
+
+
 # %%
 
 objective_fn = LossFidelity(reduction="sum",
                             norm="l2",
-                            physics=blur_fn_invariant,
+                            physics=conv2d_fft,
                             **kwargs)
 
 
 kernel_est_generator = DiffractionBlurGenerator(psf_size=psf_size,
                                             max_zernike_amplitude=0.3,
-                                            zernike_index=range(2,17 ),
+                                            zernike_index=range(2,2+num_coeffs),
                                             num_channels=1,
                                             **kwargs)
 #%%
@@ -79,87 +83,85 @@ eta_min = 1e-8
 n_restarts = 5
 
 best_kernel_est_list = []
-for sigma, blur_true in zip(sigma_list, ys):
-    best_loss = float('inf')
-    best_loss_iter = None
-    best_kernel_est = None
-    
-    for restart in range(n_restarts):
-        print("#######################################################################")
-        print(f"Restart {restart+1}/{n_restarts}: optimization for sigma={sigma.item():.2f}")
-
-        coeffs = kernel_est_generator.step(batch_size=1,
-                                        seed=random_seed())['coeff'].requires_grad_(True)
-        # coeffs = torch.zeros(1,8, **kwargs)
-        coeffs = coeffs.requires_grad_(True)
-
-        optimizer = LBFGS([coeffs],
-                        lr=1.0,
-                        history_size=10,
-                        max_iter=20,
-                        line_search_fn="strong_wolfe")
-        loss_iter = []
-        for i in range(niter):
-            
-            def closure():
-                filters = kernel_est_generator.step(batch_size=1,
-                                                coeff=coeffs)['filter']
-                optimizer.zero_grad()
-                loss = objective_fn(img, blur_true.unsqueeze(0), filters=filters, crop=False)
-                loss.backward()
-                return loss
-            optimizer.step(closure)
-            loss = closure()
-            loss_iter.append(loss.item())
-            if (i % 10 == 0) or (i == niter - 1):
-                print(f"Iteration {i+1}/{niter}, Loss: {loss.item():.10f}")
-        
-        kernel_est = kernel_est_generator.step(batch_size=1,
-                                            coeff=coeffs)['filter'].detach()
-        # show_images([kernel, kernel_est],
-        #             title=["Original Kernel", "Estimated Kernel"],
-        #             suptitle=f"relative error: {torch.norm(kernel-kernel_est)/torch.norm(kernel):.4f}")
-
-
-        if loss_iter[-1] < best_loss:
-            best_loss = loss_iter[-1]
-            best_loss_iter = loss_iter
-            best_kernel_est = kernel_est_generator.step(batch_size=1,
-                                                    coeff=coeffs)['filter'].detach()
-
-    # fig = plt.figure(figsize=(10, 5))
-    # plt.plot(loss_iter)
-    # plt.xlabel("Iteration")
-    # plt.ylabel("Loss")
-    # plt.title(f"Loss Curve for sigma={sigma.item():.2f}")
-    # plt.show()
-
-    show_images([kernel, best_kernel_est],
-                title=["Original Kernel", "Estimated Kernel"],
-                suptitle=f"relative error: {torch.norm(kernel-best_kernel_est)/torch.norm(kernel):.4f}")
-    show_images([torch.log(torch.abs(fft.fftshift(fft.fft2(kernel)))+1e-8),
-            torch.log(torch.abs(fft.fftshift(fft.fft2(best_kernel_est)))+1e-8)],
-            title=["Original Kernel Spectrum", "Estimated Kernel Spectrum"])
-
-    best_kernel_est_list.append(best_kernel_est)
-
-    
 
 # %%
-import matplotlib.pyplot as plt
+# %%
+from neural_network import PsfCalibration
+from tqdm import tqdm
+psfcalib = PsfCalibration(num_coeffs=num_coeffs, verbose=False, **kwargs)
 
-fig = plt.figure(figsize=(5, 5))
-plt.imshow(kernel[0,0].cpu().numpy(), cmap='viridis')
-plt.axis('off')
-plt.savefig(os.path.join(figure_path, f"original_kernel.png"),
-            bbox_inches="tight",
-            pad_inches=0)
+rel_err_sigmas = []
 
-for sigma, kernel_est in zip(sigma_list, best_kernel_est_list):
-    fig = plt.figure(figsize=(5, 5))
-    plt.imshow(kernel_est[0,0].cpu().numpy(), cmap='viridis')
-    plt.axis('off')
-    plt.savefig(os.path.join(figure_path, f"estimated_kernel_sigma_{sigma.item():.2f}.png"),
-                bbox_inches="tight",
-                pad_inches=0)
+for sigma in sigma_list:
+    print(f"Optimizing for sigma={sigma.item():.2f}")
+
+    blurs_true = y + sigma * torch.randn_like(y)
+
+    rel_err_sig_lbfgs = []
+    rel_err_sig_nn = []
+    progress = tqdm(range(sample_per_sigma), desc=f"Progressing for sigma={sigma.item():.2f}")
+    for i in range(sample_per_sigma):
+
+        blur_true = blurs_true[i:i+1]
+        true_filter = kernels[i:i+1]
+
+        # lbfgs optimization
+        best_loss = float('inf')
+        best_loss_iter = None
+        best_kernel_est = None
+        
+        for restart in range(n_restarts):
+            coeffs = kernel_est_generator.step(batch_size=1,
+                                            seed=random_seed())['coeff'].requires_grad_(True)
+            coeffs = coeffs.requires_grad_(True)
+
+            optimizer = LBFGS([coeffs],
+                            lr=1.0,
+                            history_size=10,
+                            max_iter=20,
+                            line_search_fn="strong_wolfe")
+            loss_iter = []
+            for i in range(niter):
+                
+                def closure():
+                    filters = kernel_est_generator.step(batch_size=1,
+                                                    coeff=coeffs)['filter']
+                    optimizer.zero_grad()
+                    loss = objective_fn(img, blur_true, filter=filters, crop=False)
+                    loss.backward()
+                    return loss
+                optimizer.step(closure)
+                loss = closure()
+                loss_iter.append(loss.item())
+                # if (i % 10 == 0) or (i == niter - 1):
+                #     print(f"Iteration {i+1}/{niter}, Loss: {loss.item():.10f}")
+            
+
+            if loss_iter[-1] < best_loss:
+                best_loss = loss_iter[-1]
+                best_loss_iter = loss_iter
+                best_kernel_est = kernel_est_generator.step(batch_size=1,
+                                                        coeff=coeffs)['filter'].detach()
+        
+        # neural network optimization
+        blur_est, loss_iter = psfcalib._forward_one_image(img,
+                                                        blur_true,
+                                                        niter=300,
+                                                        initial_coeffs=None,
+                                                        crop=False)
+        
+        relative_error_nn = torch.norm(true_filter-blur_est['filter'])/torch.norm(true_filter)
+        relative_error_lbfgs = torch.norm(true_filter-best_kernel_est)/torch.norm(true_filter)
+        rel_err_sig_lbfgs.append(relative_error_lbfgs.item())
+        rel_err_sig_nn.append(relative_error_nn.item())
+
+    rel_err_sigmas.append({
+        "lbfgs": rel_err_sig_lbfgs,
+        "nn": rel_err_sig_nn
+    })
+
+        # show_images([kernel, blur_est['filter'], best_kernel_est],
+        #             title=["Original Kernel", "NN Kernel", "LBFGS Kernel"],
+        #             suptitle=f'relative error: {relative_error_nn:.4f}, {relative_error_lbfgs:.4f}')
+
 # %%

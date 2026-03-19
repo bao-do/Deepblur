@@ -1,11 +1,12 @@
 import torch
 import torch.nn as nn
-from torch.optim import AdamW
+from torch.optim import AdamW, LBFGS
 from objectives_function import LossFidelity, blur_fn_invariant
 from deepinv.physics.generator import DiffractionBlurGenerator
 from tqdm import tqdm
 from typing import Tuple
 from deepinv.physics.functional import conv2d_fft
+from warnings import warn
 
 
 
@@ -73,15 +74,27 @@ class PsfCalibration(nn.Module):
                            y: torch.Tensor,
                            initial_coeffs: torch.Tensor = None,
                            niter: int= None,
-                           crop: bool=True):
+                           crop: bool=True,
+                           optimizer_type='lbfgs'):
         model = MLP(input_dim=self.input_dim,
                     output_dim=self.num_coeffs).to(**self.factorial_kwargs)
-        optimizer = AdamW(model.parameters(),
-                          lr=self.learning_rate,
-                          weight_decay=1e-4)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,
-                                                               T_max=self.T_max,
-                                                               eta_min=self.eta_min)
+        # no scheduler for lbfgs
+
+        if optimizer_type == 'adamw':
+            optimizer = AdamW(model.parameters(),
+                              lr=self.learning_rate,
+                              weight_decay=1e-4)
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,
+                                                                T_max=self.T_max,
+                                                                eta_min=self.eta_min)
+        else:
+            if optimizer_type != 'lbfgs':
+                warn(f"Unknown optimizer: {optimizer_type}, using LBFGS instead")
+            optimizer = LBFGS(model.parameters(),
+                                lr=1.0,
+                                history_size=10,
+                                max_iter=20,
+                                line_search_fn="strong_wolfe")
         if initial_coeffs is not None:
             xi = initial_coeffs
         else:
@@ -99,20 +112,29 @@ class PsfCalibration(nn.Module):
         else:
             progress = range(niter)
         for i in progress:
-            coeffs = model(xi)
-            filters = self.kernel_generator.step(batch_size=1,
-                                            coeff=coeffs)['filter']
-            optimizer.zero_grad()
-            loss = objective_fn(x, y, filter=filters, crop=crop)
-            loss.backward()
-            optimizer.step()
-            scheduler.step()
+            def closure():
+                coeffs = model(xi)
+                filters = self.kernel_generator.step(batch_size=1, coeff=coeffs)['filter']
+                optimizer.zero_grad()
+                loss = objective_fn(x, y, filter=filters, crop=crop)
+                loss.backward()
+                return loss
 
-            loss_iter.append(loss.item())
+            optimizer.step(closure)
+
+            with torch.no_grad():
+                coeffs_post = model(xi)
+                filters_post = self.kernel_generator.step(batch_size=1, coeff=coeffs_post)['filter']
+                loss_val = objective_fn(x, y, filter=filters_post, crop=crop)
+            loss_iter.append(loss_val.item())
+
+            if optimizer_type == 'adamw':
+                scheduler.step()
+
             if (i % 10 == 0) or (i == niter - 1):
                 if self.verbose:
-                    progress.set_postfix({"loss": loss.item()})      
-        
+                    progress.set_postfix({"loss": loss_iter[-1]})
+
         blur = self.kernel_generator.step(batch_size=1,
                                         coeff=model(xi))
         return blur, loss_iter

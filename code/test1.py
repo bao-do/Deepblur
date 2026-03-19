@@ -1,6 +1,5 @@
 #%%
 import torch
-from pytorch_minimize.optim import BasinHoppingWrapper, DualAnnealingWrapper
 import torch
 import matplotlib.pyplot as plt
 from putils import open_image, show_images
@@ -55,8 +54,8 @@ show_images([kernel], title=["Original Kernel"])
 show_images([y], title=["Blurred Image"])
 
 # %%
-# sigma_list = torch.tensor([0, 0.01, 0.05, 0.1], **kwargs)
-sigma_list = torch.tensor([0.05], **kwargs)
+sigma_list = torch.tensor([0, 0.01, 0.05, 0.1], **kwargs)
+# sigma_list = torch.tensor([0.05], **kwargs)
 
 ys = y.expand(len(sigma_list), -1, -1, -1)
 ys = ys + sigma_list.view(-1, 1, 1, 1) * torch.randn_like(y)
@@ -65,35 +64,55 @@ show_images(ys, title=[rf"$\sigma={sigma.item():.2f}$" for sigma in sigma_list])
 #%%
 num_coeffs = 15
 
-objective_fn = LossFidelity(reduction="sum",
+
+# %% 
+import torch
+from evotorch import Problem
+from evotorch.algorithms import CMAES
+
+# Define your objective function using PyTorch operations
+num_coeffs = 15
+
+filter_est_generator = DiffractionBlurGenerator(psf_size=psf_size,
+                                            max_zernike_amplitude=0.3,
+                                            zernike_index=range(2, 2+num_coeffs),
+                                            num_channels=1,
+                                            **kwargs)
+
+objective_func = LossFidelity(reduction="sum",
                             norm="l2",
                             physics=conv2d_fft,
                             **kwargs)
 
+for sigma, blur_ref in zip(sigma_list, ys):
+    print(f"Optimizing for sigma={sigma.item():.2f}")
 
-kernel_est_generator = DiffractionBlurGenerator(psf_size=psf_size,
-                                            max_zernike_amplitude=0.3,
-                                            zernike_index=range(2,2+num_coeffs),
-                                            num_channels=1,
-                                            **kwargs)
-#%%
+    def objective_func_wrapper(coeffs):
+        filters = filter_est_generator.step(coeff=coeffs.unsqueeze(0))['filter']
 
-for sigma, blur_true in zip(sigma_list,ys):
-    coeffs = torch.randn(1,num_coeffs, **kwargs).requires_grad_(True)
-
-    optimizer = DualAnnealingWrapper([coeffs],
-                                     minimizer_args={"method": "L-BFGS-B",},
-                                    da_kwargs={"niter": 200, "T": 1.0, "stepsize": 0.5})
-    def closure():
-        optimizer.zero_grad()
-        filters = kernel_est_generator.step(coeff=coeffs)['filter']
-        loss = objective_fn(img, blur_true, filter=filters, crop=False)
-        loss.backward()
+        
+        loss = objective_func(x=img,
+                              y=blur_ref.unsqueeze(0),
+                              filter=filters,crop=False).item() 
         return loss
-    optimizer.step(closure)
- 
-    show_images([kernel, kernel_est_generator.step(coeff=coeffs)['filter']],
-                title=["Original Kernel", "Estimated Kernel"],
-                suptitle=f'relative error: {torch.norm(kernel-kernel_est_generator.step(coeff=coeffs)["filter"])/torch.norm(kernel):.4f}')
+
+    # Configure the problem domain
+    problem = Problem(
+        "min", 
+        objective_func=objective_func_wrapper, 
+        solution_length=num_coeffs, 
+        initial_bounds=(-0.15, 0.15),
+        device="cuda" if torch.cuda.is_available() else "cpu"
+    )
+
+    searcher = CMAES(problem, stdev_init=0.001)
+
+    searcher.run(num_generations=200)
+
+    best_weights = searcher.status["pop_best"].values.clone()
+
+    kernel_est = filter_est_generator.step(coeff=best_weights.unsqueeze(0))['filter']
+    show_images([kernel_est, kernel], title=["Estimated Kernel", "Original Kernel"],
+                suptitle=f"Relative Error: {torch.norm(kernel_est-kernel)/torch.norm(kernel):.4f}")
 
 # %%

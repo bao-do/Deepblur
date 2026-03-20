@@ -36,6 +36,7 @@ show_images([img], title=["Original Image"])
 save_image(img, os.path.join(figure_path, "original_image.png"))
 # %%
 sigma_list = torch.tensor([0, 0.01, 0.05, 0.1], **kwargs)
+# sigma_list = torch.tensor([0], **kwargs)
 sample_per_sigma = 50
 
 max_zernike_amplitude = 0.3
@@ -62,19 +63,7 @@ y = conv2d_fft(img.expand(sample_per_sigma, -1, -1, -1), kernels, padding="valid
 
 
 
-# %%
 
-objective_fn = LossFidelity(reduction="sum",
-                            norm="l2",
-                            physics=conv2d_fft,
-                            **kwargs)
-
-
-kernel_est_generator = DiffractionBlurGenerator(psf_size=psf_size,
-                                            max_zernike_amplitude=0.3,
-                                            zernike_index=range(2,2+num_coeffs),
-                                            num_channels=1,
-                                            **kwargs)
 #%%
 niter = 30
 learning_rate = 1e-3
@@ -88,11 +77,15 @@ best_kernel_est_list = []
 from neural_network import PsfCalibration
 from tqdm import tqdm
 from torch.quasirandom import SobolEngine
-from evotorch import Problem
-from evotorch.algorithms import CMAES
+from algorithm import LbfgsPsfCalibration
+from algorithm.main import estimate_psf_zernike_mlp
 
-psfcalib = PsfCalibration(num_coeffs=num_coeffs, verbose=False, **kwargs)
+psf_calib_nn_B = PsfCalibration(num_coeffs=num_coeffs, verbose=False, **kwargs)
+psf_calib_lbfgs = LbfgsPsfCalibration(psf_size=psf_size, num_coeffs=num_coeffs, **kwargs)
 
+generator = dinv.physics.generator.DiffractionBlurGenerator(
+    psf_size=psf_size, zernike_index=range(2, 2+num_coeffs), device=device
+)
 rel_err_sigmas = []
 
 for sigma in sigma_list:
@@ -101,8 +94,9 @@ for sigma in sigma_list:
     blurs_true = y + sigma * torch.randn_like(y)
 
     rel_err_sig_lbfgs = []
-    rel_err_sig_nn = []
-    rel_err_sig_cmaes = []
+    rel_err_sig_nn_B = []
+    rel_err_sig_nn_P = []
+
 
     progress = tqdm(range(sample_per_sigma), desc=f"Progressing for sigma={sigma.item():.2f}")
     for i in range(sample_per_sigma):
@@ -112,88 +106,44 @@ for sigma in sigma_list:
 
 
         ################# LBFGS optimization with multiple restarts #################
-        best_loss = float('inf')
-        best_loss_iter = None
-        best_kernel_est = None
+        coeffs_est = psf_calib_lbfgs.forward(img,
+                                            blur_true,
+                                            initialization_method='sobol',
+                                            niter=10)
+        kernels_est = psf_calib_lbfgs.generate_blur(coeffs_est)['filter']
+
         
-        # initialize inital points covering the search space, using sobol sequence
-        coeffs_restarts = SobolEngine(dimension=num_coeffs,
-                                      scramble=True,
-                                      seed=random_seed()).draw(n_restarts).to(**kwargs)
-        coeffs_restarts = max_zernike_amplitude * (coeffs_restarts - 0.5)
-
-        for restart in range(n_restarts):
-            # coeffs = kernel_est_generator.step(coeff=coeffs_restarts[restart].unsqueeze(0)
-            #                                    )['coeff'].requires_grad_(True)
-            coeffs = coeffs_restarts[restart].unsqueeze(0).requires_grad_(True)
-            optimizer = LBFGS([coeffs],
-                            lr=1.0,
-                            history_size=10,
-                            max_iter=20,
-                            line_search_fn="strong_wolfe")
-            loss_iter = []
-            for i in range(niter):
-                
-                def closure():
-                    filters = kernel_est_generator.step(batch_size=1,
-                                                    coeff=coeffs)['filter']
-                    optimizer.zero_grad()
-                    loss = objective_fn(img, blur_true, filter=filters, crop=False)
-                    loss.backward()
-                    return loss
-                optimizer.step(closure)
-                loss = closure()
-                loss_iter.append(loss.item())
-
-            
-
-            if loss_iter[-1] < best_loss:
-                best_loss = loss_iter[-1]
-                best_loss_iter = loss_iter
-                best_kernel_est = kernel_est_generator.step(batch_size=1,
-                                                        coeff=coeffs)['filter'].detach()
-        
-        relative_error_lbfgs = torch.norm(true_filter-best_kernel_est)/torch.norm(true_filter)
+        relative_error_lbfgs = (true_filter-kernels_est).abs().sum()
         rel_err_sig_lbfgs.append(relative_error_lbfgs.item())
 
-        ################# NN REPARAMETRIZATION #################
-        blur_est, _ = psfcalib._forward_one_image(img,
+        ################# NN REPARAMETRIZATION B #################
+        coeffs_est = psf_calib_nn_B._forward_one_image(img,
                                                 blur_true,
-                                                niter=10,
+                                                niter=30,
                                                 initial_coeffs=None,
                                                 optimizer_type='lbfgs',
                                                 crop=False)
-        relative_error_nn = torch.norm(true_filter-blur_est['filter'])/torch.norm(true_filter)
-        rel_err_sig_nn.append(relative_error_nn.item())
+        kernels_est = psf_calib_nn_B.kernel_generator.step(coeff=coeffs_est)['filter']
+        relative_error_nn = (true_filter-kernels_est).abs().sum()
+        rel_err_sig_nn_B.append(relative_error_nn.item())
+
+        ################# NN REPARAMETRIZATION P #################
+        coeffs_est = estimate_psf_zernike_mlp(img,
+                                            blur_true,
+                                            psf_size[0],
+                                            range(2, 2+num_coeffs),
+                                            verbose=False,
+                                            device=device)["coefficients"]
+        coeffs_est = torch.from_numpy(coeffs_est).to(**kwargs)
+        kernels_est = generator.step(coeff=coeffs_est.unsqueeze(0))['filter']
         
-        ############### CAMA-ES optimization ###############
-        def objective_func_wrapper(coeffs):
-            filters = kernel_est_generator.step(coeff=coeffs.unsqueeze(0))['filter']
-            loss = objective_fn(x=img,
-                                y=blur_true,
-                                filter=filters,
-                                crop=False).item() 
-            return loss
-
-        problem = Problem(
-            "min", 
-            objective_func=objective_func_wrapper, 
-            solution_length=num_coeffs, 
-            initial_bounds=(-0.15, 0.15),
-            **kwargs
-        )
-        searcher = CMAES(problem, stdev_init=0.001)
-        searcher.run(num_generations=200)
-        best_weights = searcher.status["pop_best"].values.clone()
-        kernel_est = kernel_est_generator.step(coeff=best_weights.unsqueeze(0))['filter']
-
-        relative_error_cmaes = torch.norm(kernel_est-true_filter)/torch.norm(true_filter)
-        rel_err_sig_cmaes.append(relative_error_cmaes.item())
+        relative_error_nn = (true_filter-kernels_est).abs().sum()
+        rel_err_sig_nn_P.append(relative_error_nn.item())
 
     rel_err_sigmas.append({
         "lbfgs": rel_err_sig_lbfgs,
-        "nn": rel_err_sig_nn,
-        "cmaes": rel_err_sig_cmaes
+        "nn_B": rel_err_sig_nn_B,
+        "nn_P": rel_err_sig_nn_P
     })
 
 

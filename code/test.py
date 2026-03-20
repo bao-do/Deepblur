@@ -52,7 +52,7 @@ show_images([y], title=["Blurred Image"])
 
 # %%
 # sigma_list = torch.tensor([0, 0.01, 0.05, 0.1], **kwargs)
-sigma_list = torch.tensor([0], **kwargs)
+sigma_list = torch.tensor([0.1], **kwargs)
 
 ys = y.expand(len(sigma_list), -1, -1, -1)
 ys = ys + sigma_list.view(-1, 1, 1, 1) * torch.randn_like(y)
@@ -69,15 +69,20 @@ psfcalib = LbfgsPsfCalibration(device=device,
                                dtype=dtype,
                                psf_size=psf_size,
                                num_coeffs=15)
-coeffs_est = psfcalib.forward(img,
-                              ys[0].unsqueeze(0),
-                              initialization_method='random',
+coeffs_est = psfcalib.forward(img.expand(len(sigma_list), -1, -1, -1),
+                              ys,
+                              initialization_method='sobol',
                               niter=30)
-kernel_est = psfcalib.generate_blur(coeffs_est)['filter']
-show_images([kernel, kernel_est],
-            title=["original","estimated"],
-            suptitle="relative error: {:.5f}".format(torch.norm(kernel-kernel_est)/torch.norm(kernel)))
+kernels_est = psfcalib.generate_blur(coeffs_est)['filter']
+# show_images([kernel, kernel_est],
+#             title=["original","estimated"],
+#             suptitle="relative error: {:.5f}".format(torch.norm(kernel-kernel_est)/torch.norm(kernel)))
 
+for sigma, kernel_est in zip(sigma_list, kernels_est):
+    relative_error_lbfgs = (kernel-kernel_est.unsqueeze(0)).abs().sum()
+    show_images([kernel, kernel_est.unsqueeze(0)],
+                title=["original","estimated"],
+                suptitle=f"Sigma={sigma.item():.2f}, Relative error: {relative_error_lbfgs:.5f}")
 # %%
 from deepinv.physics.functional import conv2d_fft
 from torch.quasirandom import SobolEngine

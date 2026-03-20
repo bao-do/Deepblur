@@ -100,7 +100,7 @@ class PsfCalibration(nn.Module):
         else:
             xi = torch.randn(1, self.input_dim, **self.factorial_kwargs)
 
-        loss_iter = []
+        # loss_iter = []
         niter = self.niter if niter is None else niter
         
         objective_fn = LossFidelity(reduction="sum",
@@ -122,19 +122,18 @@ class PsfCalibration(nn.Module):
 
             optimizer.step(closure)
 
-            with torch.no_grad():
-                coeffs_post = model(xi)
-                filters_post = self.kernel_generator.step(batch_size=1, coeff=coeffs_post)['filter']
-                loss_val = objective_fn(x, y, filter=filters_post, crop=crop)
-            loss_iter.append(loss_val.item())
+            # with torch.no_grad():
+            #     coeffs_post = model(xi)
+            #     filters_post = self.kernel_generator.step(batch_size=1, coeff=coeffs_post)['filter']
+            #     loss_val = objective_fn(x, y, filter=filters_post, crop=crop)
+            # loss_iter.append(loss_val.item())
 
             if optimizer_type == 'adamw':
                 scheduler.step()
 
-            if (i % 10 == 0) or (i == niter - 1):
-                if self.verbose:
-                    progress.set_postfix({"loss": loss_iter[-1]})
+            # if (i % 10 == 0) or (i == niter - 1):
+            #     if self.verbose:
+            #         progress.set_postfix({"loss": loss_iter[-1]})
 
-        blur = self.kernel_generator.step(batch_size=1,
-                                        coeff=model(xi))
-        return blur, loss_iter
+
+        return model(xi)
